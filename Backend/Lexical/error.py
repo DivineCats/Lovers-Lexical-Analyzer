@@ -22,12 +22,14 @@ DELIM_UNEXPECTED_CODES = {
 def validate_program_structure(tokens: List[Token]) -> Dict[str, object]:
     """
     Validates the high-level structure of a Lovers program. Ensures sources start
-    with `love main() { ... }`, enforces balanced delimiters, and checks that the
+    with `love <identifier>() { ... }`, enforces balanced delimiters, and checks that the
     main block closes the program.
     """
     filtered = [t for t in tokens if t.kind not in IGNORED_KINDS]
     if not filtered:
-        return _failure("ERR_EMPTY", "Source is empty. Expected `love main() { ... }`.")
+        return _failure(
+            "ERR_EMPTY", "Source is empty. Expected `love <identifier>() { ... }`."
+        )
 
     idx, err = _consume_main_signature(filtered)
     if err:
@@ -83,10 +85,10 @@ def _consume_main_signature(tokens: Sequence[Token]) -> Tuple[int, Dict[str, obj
             ["love"],
         ),
         (
-            lambda t: t.kind == "IDENTIFIER" and t.lexeme == "main",
-            "Expected `main` identifier after `love`.",
+            lambda t: t.kind == "IDENTIFIER",
+            "Expected identifier after `love`.",
             "ERR_EXPECTED_MAIN",
-            ["main"],
+            ["<identifier>"],
         ),
         (
             lambda t: t.lexeme == "(",
@@ -167,13 +169,13 @@ def _ensure_program_ends_after_main(tokens: Sequence[Token], start_idx: int) -> 
                     next_tok = tokens[pos + 1]
                     return _failure(
                         "ERR_UNEXPECTED_TOKEN_AFTER_MAIN",
-                        "Program must end immediately after the closing `}` of `love main`.",
+                        "Program must end immediately after the closing `}` of the `love` block.",
                         token=next_tok,
                     )
                 return None
 
     return _failure(
         "ERR_EXPECTED_RBRACE",
-        "Missing closing `}` for main block.",
+        "Missing closing `}` for the `love` block.",
         expected=["}"],
     )

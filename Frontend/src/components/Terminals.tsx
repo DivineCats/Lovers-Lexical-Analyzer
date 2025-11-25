@@ -22,12 +22,14 @@ type Props = {
   commands?: Record<string, Command>;
   prompt?: string;
   validation?: ValidationResult | null;
+  lexError?: string | null;
 };
 
 export default function Terminal({
   commands = {},
   prompt = "guest",
   validation = null,
+  lexError = null,
 }: Props) {
   const registry = useMemo<Record<string, Command>>(
     () => ({
@@ -84,6 +86,10 @@ export default function Terminal({
   };
 
   const validationLines = useMemo(() => {
+    if (lexError) {
+      return ["Lexing error:", lexError];
+    }
+
     if (!validation) {
       return ['No validation run yet. Type "validate".'];
     }
@@ -115,7 +121,7 @@ export default function Terminal({
     return [
       `${successLabel}${validation.message ?? "Structure looks valid."}`,
     ];
-  }, [validation]);
+  }, [validation, lexError]);
 
   const onKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {

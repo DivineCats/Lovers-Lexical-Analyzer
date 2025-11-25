@@ -54,6 +54,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [lastRunAt, setLastRunAt] = useState<Date | null>(null);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
+  const [lexError, setLexError] = useState<string | null>(null);
 
   const lexSource = useCallback(async (text: string) => {
     const body = text ?? "";
@@ -61,12 +62,14 @@ export default function App() {
       setRows([]);
       setStatus("idle");
       setError(null);
+      setLexError(null);
       setLastRunAt(null);
       return [];
     }
 
     setStatus("loading");
     setError(null);
+    setLexError(null);
 
     try {
       const resp = await fetch(LEX_ENDPOINT, {
@@ -90,12 +93,18 @@ export default function App() {
 
       setRows(nextRows);
       setStatus("ready");
+      setLexError(
+        typeof payload?.error === "string" && payload.error.trim()
+          ? (payload.error as string)
+          : null
+      );
       setLastRunAt(new Date());
       return nextRows;
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to lex source.";
       setError(message);
+      setLexError(message);
       setStatus("error");
       return [];
     }
@@ -218,6 +227,7 @@ useEffect(() => {
             prompt="lover"
             commands={terminalCommands}
             validation={validation}
+            lexError={lexError}
           />
         </section>
       </main>

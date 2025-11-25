@@ -52,15 +52,10 @@ export default function TokenTable({
         {status === "loading" && (
           <div className="tokens__empty">Lexing source…</div>
         )}
-        {status === "error" && (
-          <div className="tokens__empty tokens__empty--error">
-            {error ?? "Failed to lex source."}
-          </div>
-        )}
         {status === "idle" && (
           <div className="tokens__empty">Start typing to see tokens.</div>
         )}
-        {status === "ready" && hasRows &&
+        {hasRows &&
           rows.map((r, i) => (
             <div
               key={`${r.lexeme}-${r.token}-${i}`}
@@ -77,7 +72,7 @@ export default function TokenTable({
               </div>
             </div>
           ))}
-        {status === "ready" && !hasRows && (
+        {status !== "loading" && !hasRows && (
           <div className="tokens__empty">No tokens found.</div>
         )}
       </div>

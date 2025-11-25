@@ -86,17 +86,6 @@ SINGLE_CHAR_TOKENS = {
     "#": "HASH",
 }
 
-TOKEN_LABEL_OVERRIDES = {
-    "LPAREN": "PAR",
-    "RPAREN": "PAR",
-    "LBRACE": "BRACE",
-    "RBRACE": "BRACE",
-    "LBRACKET": "BRACKET",
-    "RBRACKET": "BRACKET",
-    "GT": "GREATER_THAN",
-    "LT": "LESS_THAN",
-    "SEMICOLON": "TERM",
-}
 
 TOKEN_TYPE_OVERRIDES = {
     "LPAREN": "BRACKET",
@@ -472,7 +461,7 @@ class Lexer:
                 parts.append(repr(ch))
         if not parts:
             parts.append(", ".join(sorted(repr(a) for a in allowed)))
-        return "- " + " - ".join(parts)
+        return "- " + "- ".join(parts)
 
     def _validate_symbol_follow(self, lexeme: str, line: int, col: int) -> None:
         if lexeme == "=":
@@ -503,15 +492,20 @@ def tokenize_with_errors(source: str) -> (List[Token], List[str]):
     return Lexer(source).scan_tokens_collect_errors()
 
 def _format_tokenizer(tok: Token) -> str:
-    if tok.kind == "KEYWORD":
-        return tok.lexeme
-    if tok.kind in {"IDENTIFIER"}:
-        return tok.lexeme
+    display_name_overrides = {
+        "(": "parenthesis",
+        ")": "parenthesis",
+        "{": "brace",
+        "}": "brace",
+        "[": "bracket",
+        "]": "bracket",
+        ";": "semicolon",
+        ",": "comma",
+    }
+    # Display lexeme for all tokens (literals use their inner value).
     if tok.literal is not None:
         return tok.literal
-    if tok.kind.startswith("OP_"):
-        return tok.kind[3:]
-    return TOKEN_LABEL_OVERRIDES.get(tok.kind, tok.kind)
+    return display_name_overrides.get(tok.lexeme, tok.lexeme)
 
 
 def _token_type(kind: str) -> str:

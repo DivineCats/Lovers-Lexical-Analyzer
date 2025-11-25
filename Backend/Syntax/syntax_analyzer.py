@@ -16,6 +16,7 @@ from typing import Any, Iterable, List, Optional, Tuple
 
 from Backend.Lexical import Lexer, tokens_as_rows
 from Backend.Lexical.Lexer import LexerError, Token  # type: ignore
+from Backend.Syntax.syntax_errors import make_error
 
 
 # --- Token stream -----------------------------------------------------------
@@ -107,15 +108,17 @@ class Parser:
                 "code": "ERR_SYNTAX",
                 "expected": first.expected,
                 "token": first.to_payload().get("token"),
-                "errors": [e.to_payload() for e in self.errors],
+                "errors": [make_error(e.message, e.token, e.expected) for e in self.errors],
             }
         return True, tokens_as_rows(self.ts.tokens)
 
     # Grammar: program -> boundaries_opt globals love_main
     def program(self) -> None:
+        self.skip_newlines()
         self.boundaries_opt()
         self.globals()
         self.love_main()
+        self.skip_newlines()
         if not self.ts.at_end():
             tok = self.ts.peek()
             self.error(tok, "Unexpected tokens after program end", [])
@@ -133,6 +136,9 @@ class Parser:
 
     def globals(self) -> None:
         while not self.ts.at_end() and self.ts.peek().lexeme != "love":
+            self.skip_newlines()
+            if self.ts.at_end() or self.ts.peek().lexeme == "love":
+                break
             if not self.declaration_or_function():
                 # Synchronize on ';' or '}'.
                 self.synchronize()
@@ -224,7 +230,10 @@ class Parser:
         if not self.ts.match("LBRACE"):
             self.error(self.ts.peek(), "Expected '{' to start block", ["{"])
             return
-        while not self.ts.at_end() and self.ts.peek().kind != "RBRACE":
+        while not self.ts.at_end():
+            self.skip_newlines()
+            if self.ts.peek().kind == "RBRACE":
+                break
             if self.ts.peek().kind.startswith("KEYWORD_TYPE"):
                 self.declaration()
             else:
@@ -233,8 +242,22 @@ class Parser:
             self.error(self.ts.peek(), "Expected '}' to close block", ["}"])
 
     def statement(self) -> None:
-        # Stage 1: only expression statements.
+        self.skip_newlines()
+        # I/O statements
+        tok = self.ts.peek()
+        if tok.kind == "KEYWORD_IO_GIVE":
+            self.input_statement()
+            return
+        if tok.kind == "KEYWORD_IO_EXPRESS":
+            self.output_statement()
+            return
+        if tok.kind == "KEYWORD_IO_OVERSHARE":
+            self.overshare_statement()
+            return
+
+        # Expression statement
         self.expr()
+        self.skip_newlines()
         if not self.ts.match("SEMICOLON"):
             self.error(self.ts.peek(), "Expected ';' after statement", [";"])
 
@@ -307,6 +330,67 @@ class Parser:
         self.error(tok, "Expected expression", ["IDENTIFIER", "LITERAL", "("])
         self.ts.advance()
 
+    # --- I/O statements ----------------------------------------------------
+
+    def input_statement(self) -> None:
+        # give >> expr ;
+        self.ts.advance()  # give
+        if not self.ts.match("OP_RSHIFT"):
+            self.error(self.ts.peek(), "Expected '>>' after give", [">>"])
+            return
+        self.expr()
+        self.skip_newlines()
+        if not self.ts.match("SEMICOLON"):
+            self.error(self.ts.peek(), "Expected ';' after input statement", [";"])
+
+    def output_statement(self) -> None:
+        # express << value (<< value)* ;
+        self.ts.advance()  # express
+        if not self.ts.match("OP_LSHIFT"):
+            self.error(self.ts.peek(), "Expected '<<' after express", ["<<"])
+            return
+        self.output_chain()
+        self.skip_newlines()
+        if not self.ts.match("SEMICOLON"):
+            self.error(self.ts.peek(), "Expected ';' after output statement", [";"])
+
+    def output_chain(self) -> None:
+        # value then zero or more << value
+        self.output_value()
+        while self.ts.match("OP_LSHIFT"):
+            self.output_value()
+
+    def output_value(self) -> None:
+        tok = self.ts.peek()
+        if tok.kind == "KEYWORD_ENDL":  # periodt
+            self.ts.advance()
+            return
+        if tok.kind in {"IDENTIFIER", "INT_LITERAL", "FLOAT_LITERAL", "STRING_LITERAL", "BOOL_LITERAL_FALSE", "BOOL_LITERAL_TRUE"} or tok.kind == "LPAREN":
+            self.expr()
+            return
+        self.error(tok, "Expected value after '<<'", ["IDENTIFIER", "LITERAL", "(", "periodt"])
+        self.ts.advance()
+
+    def overshare_statement(self) -> None:
+        # overshare ( args ) ;
+        self.ts.advance()  # overshare
+        if not self.ts.match("LPAREN"):
+            self.error(self.ts.peek(), "Expected '(' after overshare", ["("])
+            return
+        self.arguments()
+        if not self.ts.match("RPAREN"):
+            self.error(self.ts.peek(), "Expected ')' after overshare args", [")"])
+        self.skip_newlines()
+        if not self.ts.match("SEMICOLON"):
+            self.error(self.ts.peek(), "Expected ';' after overshare", [";"])
+
+    def arguments(self) -> None:
+        if self.ts.peek().kind in {"RPAREN"}:
+            return
+        self.expr()
+        while self.ts.match("COMMA"):
+            self.expr()
+
     def postfix(self) -> None:
         while True:
             if self.ts.match("LPAREN"):
@@ -334,6 +418,10 @@ class Parser:
             if self.ts.peek().kind in {"SEMICOLON", "RBRACE"}:
                 self.ts.advance()
                 return
+            self.ts.advance()
+
+    def skip_newlines(self) -> None:
+        while not self.ts.at_end() and self.ts.peek().kind == "NEWLINE":
             self.ts.advance()
 
 

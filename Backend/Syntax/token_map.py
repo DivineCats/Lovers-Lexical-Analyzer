@@ -84,7 +84,7 @@ reserved_word_follows = {
     "moveon": {";"},
     "breakup": {";"},
     # Others
-    "love": {"space_del", "{"},
+    "love": {"space_del"},
     "periodt": {";"},
     "const": {"space_del"},
     "greenflag": {";", ":"},
@@ -98,7 +98,7 @@ reserved_word_follows = {
 
 reserved_symbol_follows = {
     # Arithmetic
-    "+": {"space_del", "alphanum", "("},
+    "+": {"space_del", "alphanum", "(", '"', ";"},
     "-": {"space_del", "alphanum", "("},
     "*": {"space_del", "alphanum", "("},
     "/": {"space_del", "alphanum", "("},

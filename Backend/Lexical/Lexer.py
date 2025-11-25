@@ -129,7 +129,8 @@ DIGIT = Literals["digit"]
 ALNUM = Literals["alphanumeric"]
 WHITESPACE = {" ", "\r", "\t", "\f"}
 DISALLOWED_IDENTIFIERS = {"true", "false"}
-BAD_SYMBOLS_AFTER_IDENTIFIER = set("!@#$%^&*|\\?~")
+# Disallow only symbols that should never appear immediately after an identifier.
+BAD_SYMBOLS_AFTER_IDENTIFIER = set("!@#$^|\\?~")
 IDENT_FOLLOW_CHARS = (
     expanded_identifier_follows.get("variant_1", set())
     | expanded_identifier_follows.get("variant_2", set())

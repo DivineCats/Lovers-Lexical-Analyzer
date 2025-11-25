@@ -40,20 +40,23 @@ def validate_program_structure(tokens: List[Token]) -> Dict[str, object]:
             "ERR_EMPTY", "Source is empty. Expected `love <identifier>() { ... }`."
         )
 
+    err = _check_balanced_delimiters(filtered)
+    if err:
+        return err
+
     idx = 0
     while idx < len(filtered) and _looks_like_cpp_decl(filtered, idx):
         idx, err = _consume_cpp_decl(filtered, idx)
         if err:
             return err
 
+    if idx >= len(filtered):
+        return _success("Structure looks valid (globals only).")
+
     consumed, err = _consume_main_signature(filtered[idx:])
     if err:
         return err
     idx += consumed
-
-    err = _check_balanced_delimiters(filtered)
-    if err:
-        return err
 
     err = _ensure_program_ends_after_main(filtered, idx)
     if err:

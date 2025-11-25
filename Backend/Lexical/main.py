@@ -1,7 +1,8 @@
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
-from Backend.Lexical import Lexer, tokens_as_rows, validate_program_structure
+from Backend.Lexical import Lexer, tokens_as_rows, validate_program_structure, tokenize_with_errors
+from Backend.Lexical.Lexer import LexerError
 
 app = Flask(__name__)
 CORS(app, resources={r"/lex": {"origins": "*"}, r"/validate": {"origins": "*"}})
@@ -14,7 +15,16 @@ def lex():
         return jsonify({"error": "`source` must be a string"}), 400
 
     try:
-        tokens = Lexer(source).scan_tokens()
+        tokens, errors = tokenize_with_errors(source)
+        payload = {"rows": tokens_as_rows(tokens)}
+        if errors:
+            payload["error"] = errors[0]
+            payload["errors"] = errors
+        return jsonify(payload), 200
+    except LexerError as exc:
+        # Return partial tokens with the error so UI can show stream + terminal error.
+        rows = tokens_as_rows(getattr(exc, "tokens", []) or [])
+        return jsonify({"rows": rows, "error": f"Lexing failed: {exc}"}), 200
     except Exception as exc:
         return jsonify({"error": f"Lexing failed: {exc}"}), 400
 

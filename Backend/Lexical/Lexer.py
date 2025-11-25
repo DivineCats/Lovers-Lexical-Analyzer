@@ -6,6 +6,10 @@ from typing import Iterable, List, Optional
 
 from .Literals import Literals
 from .Delims import valid_delimiters_identifier
+from Backend.Syntax.token_map import (
+    expanded_reserved_word_follows,
+    expanded_identifier_follows,
+)
 
 RESERVED_WORDS = {
     "give": ("KEYWORD_IO_GIVE", "give"),
@@ -122,6 +126,14 @@ ALPHA = Literals["alphabet"]
 DIGIT = Literals["digit"]
 ALNUM = Literals["alphanumeric"]
 WHITESPACE = {" ", "\r", "\t", "\f"}
+DISALLOWED_IDENTIFIERS = {"true", "false"}
+IDENT_FOLLOW_CHARS = (
+    expanded_identifier_follows.get("variant_1", set())
+    | expanded_identifier_follows.get("variant_2", set())
+    | IDENTIFIER_DELIMS
+    | WHITESPACE
+    | {"\n", "\0"}
+)
 
 @dataclass
 class Token:
@@ -136,7 +148,9 @@ class Token:
         return asdict(self)
 
 class LexerError(Exception):
-    pass
+    def __init__(self, message: str, tokens: Optional[List["Token"]] = None):
+        super().__init__(message)
+        self.tokens = tokens or []
 
 class Lexer:
     def __init__(self, source: str):
@@ -146,53 +160,81 @@ class Lexer:
         self.pos = 0
         self.line = 1
         self.column = 1
+        self._partial_tokens: List[Token] = []
 
     def scan_tokens(self) -> List[Token]:
         tokens: List[Token] = []
+        self._partial_tokens = tokens
         while not self._is_at_end():
             self.start = self.pos
             start_line, start_col = self.line, self.column
             ch = self._advance()
-
-            if ch in WHITESPACE:
-                continue
-            if ch == "\n":
-                tokens.append(
-                    Token("NEWLINE", "\\n", line=start_line, column=start_col)
-                )
-                continue
-            if ch == "/" and self._match("/"):
-                self._skip_line_comment()
-                continue
-            if ch == "/" and self._match("*"):
-                self._skip_block_comment()
-                continue
-            if ch in {"'", '"'}:
-                tokens.append(self._string_token(ch, start_line, start_col))
-                continue
-            if ch.isdigit():
-                tokens.append(self._number_token(start_line, start_col))
-                continue
-            if self._is_identifier_start(ch):
-                tokens.append(self._identifier_token(start_line, start_col))
-                continue
-
-            two_char = ch + self._peek()
-            if two_char in MULTI_CHAR_OPERATORS:
-                self._advance()
-                tokens.append(
-                    Token(MULTI_CHAR_OPERATORS[two_char], two_char, line=start_line, column=start_col)
-                )
-                continue
-
-            if ch in SINGLE_CHAR_TOKENS:
-                tokens.append(Token(SINGLE_CHAR_TOKENS[ch], ch, line=start_line, column=start_col))
-                continue
-
-            raise LexerError(f"Unexpected character {ch!r} at {start_line}:{start_col}")
+            self._scan_single_token(ch, tokens, start_line, start_col)
 
         tokens.append(Token("EOF", "", line=self.line, column=self.column))
         return tokens
+
+    def scan_tokens_collect_errors(self) -> (List[Token], List[str]):
+        tokens: List[Token] = []
+        errors: List[str] = []
+        self._partial_tokens = tokens
+        while not self._is_at_end():
+            self.start = self.pos
+            start_line, start_col = self.line, self.column
+            ch = self._advance()
+            try:
+                self._scan_single_token(ch, tokens, start_line, start_col)
+            except LexerError as exc:
+                errors.append(str(exc))
+                self._recover_after_error()
+                continue
+        tokens.append(Token("EOF", "", line=self.line, column=self.column))
+        return tokens, errors
+
+    # --- single token scanner ----------------------------------------------
+
+    def _scan_single_token(self, ch: str, tokens: List[Token], start_line: int, start_col: int) -> None:
+        if ch in WHITESPACE:
+            return
+        if ch == "\n":
+            tokens.append(Token("NEWLINE", "\\n", line=start_line, column=start_col))
+            return
+        if ch == "/" and self._match("/"):
+            self._skip_line_comment()
+            return
+        if ch == "/" and self._match("*"):
+            self._skip_block_comment()
+            return
+        if ch in {"'", '"'}:
+            tokens.append(self._string_token(ch, start_line, start_col))
+            return
+        if ch.isdigit():
+            tokens.append(self._number_token(start_line, start_col))
+            return
+        if self._is_identifier_start(ch):
+            tokens.append(self._identifier_token(start_line, start_col))
+            return
+
+        two_char = ch + self._peek()
+        if two_char in MULTI_CHAR_OPERATORS:
+            self._advance()
+            tokens.append(Token(MULTI_CHAR_OPERATORS[two_char], two_char, line=start_line, column=start_col))
+            return
+
+        if ch in SINGLE_CHAR_TOKENS:
+            tokens.append(Token(SINGLE_CHAR_TOKENS[ch], ch, line=start_line, column=start_col))
+            return
+
+        raise LexerError(f"Unexpected character {ch!r} at {start_line}:{start_col}", tokens)
+
+    def _recover_after_error(self) -> None:
+        # Skip ahead until a likely delimiter/whitespace to continue scanning.
+        self._advance() if not self._is_at_end() else None
+        while not self._is_at_end():
+            ch = self._peek()
+            if ch in WHITESPACE or ch == "\n" or ch in IDENTIFIER_DELIMS:
+                return
+            self._advance()
 
     # --- helpers -----------------------------------------------------------
 
@@ -202,19 +244,33 @@ class Lexer:
         lexeme = self.source[self.start:self.pos]
         if len(lexeme) > 20:
             raise LexerError(
-                f"Identifier `{lexeme}` exceeds the maximum length of 20 characters at {line}:{col}"
+                f"Identifier `{lexeme}` exceeds the maximum length of 20 characters at {line}:{col}",
+                self._partial_tokens,
             )
         entry = RESERVED_WORDS.get(lexeme)
         if entry is None:
             lowered = lexeme.lower()
+            if lowered in DISALLOWED_IDENTIFIERS:
+                raise LexerError(
+                    f"`{lexeme}` is not valid in this language; use `greenflag` or `redflag` at {line}:{col}",
+                    self._partial_tokens,
+                )
             if lowered in RESERVED_WORDS:
                 raise LexerError(
-                    f"Reserved word `{lowered}` must be written in lowercase at {line}:{col}"
+                    f"Reserved word `{lowered}` must be written in lowercase at {line}:{col}",
+                    self._partial_tokens,
                 )
         if entry:
+            nxt = self._peek()
+            allowed = expanded_reserved_word_follows.get(lexeme, IDENT_FOLLOW_CHARS)
+            if nxt not in allowed:
+                raise LexerError(
+                    f"Reserved word `{lexeme}` must be followed by a delimiter at {line}:{col}",
+                    self._partial_tokens,
+                )
             kind, cpp_equiv = entry
             literal = cpp_equiv if kind.startswith("BOOL_LITERAL") else None
-            return Token(kind="KEYWORD" if kind.startswith("KEYWORD") else kind,
+            return Token(kind=kind,
                          lexeme=lexeme,
                          literal=literal,
                          line=line,
@@ -232,12 +288,22 @@ class Lexer:
             while self._peek().isdigit():
                 self._advance()
         lexeme = self.source[self.start:self.pos]
+        nxt = self._peek()
+        if nxt not in IDENT_FOLLOW_CHARS:
+            tok = Token(token_kind, lexeme, literal=lexeme, line=line, column=col)
+            self._partial_tokens.append(tok)
+            human_kind = "float" if token_kind == "FLOAT_LITERAL" else "integer"
+            raise LexerError(
+                f"Invalid delimiter after {human_kind} `{lexeme}`: `{nxt}` at {line}:{self.column}",
+                self._partial_tokens,
+            )
         return Token(token_kind, lexeme, literal=lexeme, line=line, column=col)
 
     def _string_token(self, quote: str, line: int, col: int) -> Token:
         if quote != '"':
             raise LexerError(
-                f'String values must be enclosed in double quotes (") at {line}:{col}'
+                f'String values must be enclosed in double quotes (") at {line}:{col}',
+                self._partial_tokens,
             )
         escaped = False
         while not self._is_at_end():
@@ -253,8 +319,8 @@ class Lexer:
                 inner = lexeme[1:-1]
                 return Token("STRING_LITERAL", lexeme, literal=inner, line=line, column=col)
             if c == "\n":
-                raise LexerError(f"Unterminated string at {line}:{col}")
-        raise LexerError(f"Unterminated string at {line}:{col}")
+                raise LexerError(f"Unterminated string at {line}:{col}", self._partial_tokens)
+        raise LexerError(f"Unterminated string at {line}:{col}", self._partial_tokens)
 
     def _skip_line_comment(self) -> None:
         while not self._is_at_end() and self._peek() != "\n":
@@ -267,10 +333,11 @@ class Lexer:
                 self._advance()
                 return
             self._advance()
-        raise LexerError("Unterminated block comment")
+        raise LexerError("Unterminated block comment", self._partial_tokens)
 
     def _is_identifier_start(self, ch: str) -> bool:
-        return ch in ALPHA or ch == "_"
+        # Must start with a letter (no leading underscores per language rules).
+        return ch in ALPHA
 
     def _is_identifier_part(self, ch: str) -> bool:
         return ch in ALNUM or ch == "_"
@@ -308,6 +375,9 @@ class Lexer:
 def tokenize(source: str) -> List[Token]:
     return Lexer(source).scan_tokens()
 
+def tokenize_with_errors(source: str) -> (List[Token], List[str]):
+    return Lexer(source).scan_tokens_collect_errors()
+
 def _format_tokenizer(tok: Token) -> str:
     if tok.kind == "KEYWORD":
         return tok.lexeme
@@ -322,16 +392,18 @@ def _format_tokenizer(tok: Token) -> str:
 
 def _token_type(kind: str) -> str:
     if kind in {"INT_LITERAL"}:
-        return "INT_LIT"
-    if kind in {"FLOAT_LITERAL"}:
-        return "FLOAT_LIT"
-    if kind in {"STRING_LITERAL"}:
-        return "STRING_LIT"
-    if kind in {"CHAR_LITERAL"}:
-        return "CHAR_LIT"
-    if kind in {"BOOL_LITERAL_FALSE", "BOOL_LITERAL_TRUE"}:
-        return "BOOL_LIT"
-    return TOKEN_TYPE_OVERRIDES.get(kind, kind)
+        name = "INT_LIT"
+    elif kind in {"FLOAT_LITERAL"}:
+        name = "FLOAT_LIT"
+    elif kind in {"STRING_LITERAL"}:
+        name = "STRING_LIT"
+    elif kind in {"CHAR_LITERAL"}:
+        name = "CHAR_LIT"
+    elif kind in {"BOOL_LITERAL_FALSE", "BOOL_LITERAL_TRUE"}:
+        name = "BOOL_LIT"
+    else:
+        name = TOKEN_TYPE_OVERRIDES.get(kind, kind)
+    return name[:12]
 
 
 def tokens_as_rows(tokens: Iterable[Token]) -> List[dict]:

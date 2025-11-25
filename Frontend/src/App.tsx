@@ -15,7 +15,7 @@ const TOKEN_STATUS_LABEL: Record<TokenStatus, string> = {
   error: "Error",
 };
 
-const DEFAULT_SOURCE = `love () {
+const DEFAULT_SOURCE = `love main() {
   express << "hello, lover";
 }
 `;
@@ -27,6 +27,8 @@ const DEFAULT_FILE: FileTab = {
 };
 
 const LEX_ENDPOINT = import.meta.env.VITE_LEX_ENDPOINT?.trim() || "/lex";
+const VALIDATE_ENDPOINT =
+  import.meta.env.VITE_VALIDATE_ENDPOINT?.trim() || "/validate";
 
 async function parseResponseBody(
   resp: Response
@@ -48,7 +50,7 @@ export default function App() {
   const [status, setStatus] = useState<TokenStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [lastRunAt, setLastRunAt] = useState<Date | null>(null);
-  const [validation] = useState<ValidationResult | null>(null);
+  const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [lexError, setLexError] = useState<string | null>(null);
 
   const lexSource = useCallback(async (text: string) => {
@@ -105,12 +107,77 @@ export default function App() {
     }
   }, []);
 
+  const syntaxSource = useCallback(async (): Promise<ValidationResult> => {
+    const body = source ?? "";
+    if (!body.trim()) {
+      const res: ValidationResult = {
+        ok: false,
+        message: "Source is empty. Expected `love main() { ... }`.",
+        code: "ERR_EMPTY",
+        expected: ["love"],
+      };
+      setValidation(res);
+      return res;
+    }
+
+    try {
+      const resp = await fetch(VALIDATE_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: body }),
+      });
+      const { data: payload, raw } = await parseResponseBody(resp);
+
+      if (resp.ok && payload?.ok) {
+        const success: ValidationResult = {
+          ok: true,
+          message: (payload?.message as string) ?? "Structure looks valid.",
+          code: payload?.code as string | undefined,
+        };
+        setValidation(success);
+        return success;
+      }
+
+      const failureMessage =
+        (payload?.message as string | undefined) ??
+        (payload?.error as string | undefined) ??
+        raw?.trim() ??
+        `Validation failed (HTTP ${resp.status})`;
+      const failure: ValidationResult = {
+        ok: false,
+        message: failureMessage,
+        code: payload?.code as string | undefined,
+        token: payload?.token as ValidationResult["token"],
+        expected: Array.isArray(payload?.expected)
+          ? (payload.expected as string[])
+          : undefined,
+      };
+      setValidation(failure);
+      return failure;
+    } catch (err) {
+      const failure: ValidationResult = {
+        ok: false,
+        message:
+          err instanceof Error ? err.message : "Failed to reach validator.",
+      };
+      setValidation(failure);
+      return failure;
+    }
+  }, [source]);
+
   useEffect(() => {
     const handle = setTimeout(() => {
-      void lexSource(source);
+      void (async () => {
+        const toks = await lexSource(source);
+        if (toks.length) {
+          await syntaxSource();
+        } else {
+          setValidation(null);
+        }
+      })();
     }, 400);
     return () => clearTimeout(handle);
-  }, [lexSource, source]);
+  }, [lexSource, syntaxSource, source]);
 
   const handleEditorChange = useCallback(
     (files: FileTab[], activeId: string) => {

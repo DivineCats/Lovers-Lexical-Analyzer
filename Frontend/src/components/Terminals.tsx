@@ -24,13 +24,19 @@ export default function Terminal({ validation = null, lexError = null }: Props) 
   const lines: string[] = [];
 
   if (lexError) {
-    lines.push("Lexing error:");
+    lines.push("LEXICAL:");
     lexError.split(/\r?\n/).forEach((line) => {
       if (line.trim().length) {
         lines.push(line);
       }
     });
-  } else if (validation && !validation.ok) {
+    // Also surface a syntax notice so both sections appear.
+    lines.push("SYNTAX:");
+    lines.push("Lexical errors detected. Resolve them before syntax analysis.");
+  }
+
+  if (validation && !validation.ok) {
+    lines.push("SYNTAX:");
     const parts: string[] = [];
     if (validation.token?.line != null && validation.token?.column != null) {
       parts.push(`line ${validation.token.line}, column ${validation.token.column}`);

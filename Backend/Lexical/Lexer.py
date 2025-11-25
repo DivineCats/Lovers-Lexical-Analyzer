@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
+from decimal import Decimal, InvalidOperation
 from typing import Iterable, List, Optional
 
 from .Literals import Literals
@@ -9,6 +10,7 @@ from .Delims import valid_delimiters_identifier
 from Backend.Syntax.token_map import (
     expanded_reserved_word_follows,
     expanded_identifier_follows,
+    expanded_reserved_symbol_follows,
 )
 
 RESERVED_WORDS = {
@@ -44,6 +46,8 @@ MULTI_CHAR_OPERATORS = {
     "!=": "OP_NEQ",
     ">=": "OP_GTE",
     "<=": "OP_LTE",
+    ">>": "OP_RSHIFT",
+    "<<": "OP_LSHIFT",
     "&&": "OP_AND",
     "||": "OP_OR",
     "++": "OP_INC",
@@ -67,7 +71,6 @@ SINGLE_CHAR_TOKENS = {
     "[": "LBRACKET",
     "]": "RBRACKET",
     ":": "COLON",
-    "?": "QUESTION",
     ".": "DOT",
     "+": "PLUS",
     "-": "MINUS",
@@ -105,7 +108,6 @@ TOKEN_TYPE_OVERRIDES = {
     "SEMICOLON": "DELIMITER",
     "COMMA": "DELIMITER",
     "COLON": "DELIMITER",
-    "QUESTION": "DELIMITER",
     "DOT": "DELIMITER",
     "PLUS": "OPERATOR",
     "MINUS": "OPERATOR",
@@ -127,6 +129,7 @@ DIGIT = Literals["digit"]
 ALNUM = Literals["alphanumeric"]
 WHITESPACE = {" ", "\r", "\t", "\f"}
 DISALLOWED_IDENTIFIERS = {"true", "false"}
+BAD_SYMBOLS_AFTER_IDENTIFIER = set("!@#$%^&*|\\?~")
 IDENT_FOLLOW_CHARS = (
     expanded_identifier_follows.get("variant_1", set())
     | expanded_identifier_follows.get("variant_2", set())
@@ -218,11 +221,14 @@ class Lexer:
         two_char = ch + self._peek()
         if two_char in MULTI_CHAR_OPERATORS:
             self._advance()
+            self._validate_symbol_follow(two_char, start_line, start_col)
             tokens.append(Token(MULTI_CHAR_OPERATORS[two_char], two_char, line=start_line, column=start_col))
             return
 
         if ch in SINGLE_CHAR_TOKENS:
-            tokens.append(Token(SINGLE_CHAR_TOKENS[ch], ch, line=start_line, column=start_col))
+            lexeme = ch
+            self._validate_symbol_follow(lexeme, start_line, start_col)
+            tokens.append(Token(SINGLE_CHAR_TOKENS[lexeme], lexeme, line=start_line, column=start_col))
             return
 
         raise LexerError(f"Unexpected character {ch!r} at {start_line}:{start_col}", tokens)
@@ -247,6 +253,17 @@ class Lexer:
                 f"Identifier `{lexeme}` exceeds the maximum length of 20 characters at {line}:{col}",
                 self._partial_tokens,
             )
+        nxt = self._peek()
+        if nxt in BAD_SYMBOLS_AFTER_IDENTIFIER:
+            if nxt == "!" and self._peek_next() == "=":
+                pass  # allow '!='
+            elif nxt == "|" and self._peek_next() == "|":
+                pass  # allow '||'
+            else:
+                raise LexerError(
+                    f"Invalid delimiter `{nxt}` after identifier `{lexeme}` at {line}:{col}\n\nExpected: {self._format_expected(IDENT_FOLLOW_CHARS)}",
+                    self._partial_tokens,
+                )
         entry = RESERVED_WORDS.get(lexeme)
         if entry is None:
             lowered = lexeme.lower()
@@ -265,9 +282,27 @@ class Lexer:
             allowed = expanded_reserved_word_follows.get(lexeme, IDENT_FOLLOW_CHARS)
             if nxt not in allowed:
                 raise LexerError(
-                    f"Reserved word `{lexeme}` must be followed by a delimiter at {line}:{col}",
+                    f"Reserved word `{lexeme}` must be followed by a delimiter at {line}:{col}\n\nExpected: {self._format_expected(allowed)}",
                     self._partial_tokens,
                 )
+            if lexeme == "give":
+                if not self._peek_after_ws_pair(">>"):
+                    raise LexerError(
+                        f"`give` must be followed by `>>` at {line}:{col}",
+                        self._partial_tokens,
+                    )
+            if lexeme == "express":
+                if not self._peek_after_ws_pair("<<"):
+                    raise LexerError(
+                        f"`express` must be followed by `<<` at {line}:{col}",
+                        self._partial_tokens,
+                    )
+            if lexeme == "overshare":
+                if not self._peek_after_ws_pair("<<"):
+                    raise LexerError(
+                        f"`overshare` must be followed by `<<` at {line}:{col}",
+                        self._partial_tokens,
+                    )
             kind, cpp_equiv = entry
             literal = cpp_equiv if kind.startswith("BOOL_LITERAL") else None
             return Token(kind=kind,
@@ -294,10 +329,55 @@ class Lexer:
             self._partial_tokens.append(tok)
             human_kind = "float" if token_kind == "FLOAT_LITERAL" else "integer"
             raise LexerError(
-                f"Invalid delimiter after {human_kind} `{lexeme}`: `{nxt}` at {line}:{self.column}",
+                f"Invalid delimiter after {human_kind} {lexeme}: {nxt} at {line}:{self.column}\nExpected: {self._format_expected(IDENT_FOLLOW_CHARS)}",
                 self._partial_tokens,
             )
-        return Token(token_kind, lexeme, literal=lexeme, line=line, column=col)
+        if token_kind == "INT_LITERAL":
+            # Enforce dear literal rules: max 10 digits (ignoring leading zeros) and max value 9999999999.
+            digits_only = lexeme.lstrip("0") or "0"
+            if len(digits_only) > 10:
+                raise LexerError(
+                    f"Integer literal `{lexeme}` exceeds maximum length of 10 digits at {line}:{col}",
+                    self._partial_tokens,
+                )
+            value = int(digits_only)
+            if value > 9999999999:
+                raise LexerError(
+                    f"Integer literal `{lexeme}` exceeds maximum value 9999999999 at {line}:{col}",
+                    self._partial_tokens,
+                )
+            return Token(token_kind, lexeme, literal=lexeme, line=line, column=col)
+
+        # FLOAT_LITERAL: dearest rules
+        int_part, _, frac_part = lexeme.partition(".")
+        norm_int = int_part.lstrip("0") or "0"
+        norm_frac_raw = frac_part.rstrip("0")
+        truncated_frac = norm_frac_raw[:6] if norm_frac_raw else "0"
+
+        if len(norm_int) > 10:
+            raise LexerError(
+                f"Float literal `{lexeme}` exceeds 10 digits before decimal at {line}:{col}",
+                self._partial_tokens,
+            )
+        if len(norm_int) + len(truncated_frac) > 16:
+            raise LexerError(
+                f"Float literal `{lexeme}` exceeds 16 total digits at {line}:{col}",
+                self._partial_tokens,
+            )
+        try:
+            numeric_val = Decimal(f"{norm_int}.{truncated_frac}")
+        except (InvalidOperation, ValueError):
+            raise LexerError(
+                f"Invalid float literal `{lexeme}` at {line}:{col}",
+                self._partial_tokens,
+            )
+        if numeric_val > Decimal("9999999999.999999"):
+            raise LexerError(
+                f"Float literal `{lexeme}` exceeds maximum value 9999999999.999999 at {line}:{col}",
+                self._partial_tokens,
+            )
+        literal_clean = f"{norm_int}.{truncated_frac}"
+        return Token(token_kind, lexeme, literal=literal_clean, line=line, column=col)
 
     def _string_token(self, quote: str, line: int, col: int) -> Token:
         if quote != '"':
@@ -306,9 +386,23 @@ class Lexer:
                 self._partial_tokens,
             )
         escaped = False
+        content_chars: list[str] = []
         while not self._is_at_end():
             c = self._advance()
             if escaped:
+                if c == '"':
+                    content_chars.append('"')
+                elif c == "\\":
+                    content_chars.append("\\")
+                elif c == "n":
+                    content_chars.append("\n")
+                elif c == "t":
+                    content_chars.append("\t")
+                else:
+                    raise LexerError(
+                        f"Invalid escape sequence `\\{c}` in string at {line}:{col}",
+                        self._partial_tokens,
+                    )
                 escaped = False
                 continue
             if c == "\\":
@@ -316,10 +410,11 @@ class Lexer:
                 continue
             if c == quote:
                 lexeme = self.source[self.start:self.pos]
-                inner = lexeme[1:-1]
+                inner = "".join(content_chars)
                 return Token("STRING_LITERAL", lexeme, literal=inner, line=line, column=col)
             if c == "\n":
                 raise LexerError(f"Unterminated string at {line}:{col}", self._partial_tokens)
+            content_chars.append(c)
         raise LexerError(f"Unterminated string at {line}:{col}", self._partial_tokens)
 
     def _skip_line_comment(self) -> None:
@@ -362,6 +457,23 @@ class Lexer:
             return "\0"
         return self.source[self.pos + 1]
 
+    def _peek_non_whitespace(self) -> str:
+        i = self.pos
+        while i < self.length and self.source[i] in {" ", "\t", "\r", "\n"}:
+            i += 1
+        if i >= self.length:
+            return "\0"
+        return self.source[i]
+
+    def _peek_after_ws_pair(self, expected: str) -> bool:
+        """Check if the next non-whitespace sequence starts with the given pair (e.g., '>>')."""
+        i = self.pos
+        while i < self.length and self.source[i] in {" ", "\t", "\r"}:
+            i += 1
+        if i + 1 >= self.length:
+            return False
+        return self.source[i] == expected[0] and self.source[i + 1] == expected[1]
+
     def _match(self, expected: str) -> bool:
         if self._is_at_end() or self.source[self.pos] != expected:
             return False
@@ -371,6 +483,42 @@ class Lexer:
 
     def _is_at_end(self) -> bool:
         return self.pos >= self.length
+
+    def _format_expected(self, allowed: set[str]) -> str:
+        parts: List[str] = []
+        if ALNUM.issubset(allowed):
+            parts.append("alphanum")
+        if " " in allowed or "\t" in allowed:
+            parts.append("whitespace")
+        for ch in ["(", ")", "[", "]", "{", "}", ";", ",", ":"]:
+            if ch in allowed:
+                parts.append(repr(ch))
+        for ch in ["+", "-", "*", "/", "%", "=", "!", ">", "<", "&", "|", "."]:
+            if ch in allowed:
+                parts.append(repr(ch))
+        if not parts:
+            parts.append(", ".join(sorted(repr(a) for a in allowed)))
+        return "- " + " - ".join(parts)
+
+    def _validate_symbol_follow(self, lexeme: str, line: int, col: int) -> None:
+        if lexeme == "=":
+            return
+        if lexeme in {">", "<", ">=", "<=", "==", "!=", ">>", "<<", "&&", "||"}:
+            return
+        if lexeme in {"(", ")", "[", "]", "{", "}"}:
+            return
+        allowed = expanded_reserved_symbol_follows.get(lexeme)
+        if not allowed:
+            return
+        nxt = self._peek_non_whitespace()
+        if nxt == "\0":
+            return
+        if nxt not in allowed:
+            expected = self._format_expected(allowed)
+            raise LexerError(
+                f"Invalid delimiter `{nxt}` after operator `{lexeme}` at {line}:{col}\n\nExpected one of: {expected}",
+                self._partial_tokens,
+            )
 
 def tokenize(source: str) -> List[Token]:
     return Lexer(source).scan_tokens()

@@ -149,16 +149,17 @@ class Parser:
             self.error(tok, "Program must start with `love` block", ["love"])
             return
         self.ts.advance()
-        if not self.ts.match("IDENTIFIER"):
-            self.error(self.ts.peek(), "Expected identifier after `love`", ["IDENTIFIER"])
         if not self.ts.match("LPAREN"):
-            self.error(self.ts.peek(), "Expected '(' after main name", ["("])
+            self.error(self.ts.peek(), "Expected '(' after `love`", ["("])
         if not self.ts.match("RPAREN"):
-            self.error(self.ts.peek(), "Expected ')' after parameters", [")"])
+            self.error(self.ts.peek(), "Expected ')' after `love()`", [")"])
         self.block()
 
     def declaration_or_function(self) -> bool:
         tok = self.ts.peek()
+        if tok.kind == "KEYWORD_CONST":
+            self.const_declaration()
+            return True
         if not tok.kind.startswith("KEYWORD_TYPE"):
             return False
         # lookahead to see if function: type IDENTIFIER '('
@@ -208,13 +209,34 @@ class Parser:
         if not self.ts.match("SEMICOLON"):
             self.error(self.ts.peek(), "Expected ';' after declaration", [";"])
 
+    def const_declaration(self) -> None:
+        # const dataType identifier = expr ;
+        self.ts.advance()  # const
+        if not self.ts.peek().kind.startswith("KEYWORD_TYPE"):
+            self.error(self.ts.peek(), "Expected data type after 'const'", ["dear", "dearest", "rant", "status"])
+            return
+        self.ts.advance()  # type
+        if not self.ts.match("IDENTIFIER"):
+            self.error(self.ts.peek(), "Expected identifier after const type", ["IDENTIFIER"])
+            return
+        self.array_decl()
+        if not self.ts.match("ASSIGN"):
+            self.error(self.ts.peek(), "Expected '=' in const declaration", ["="])
+            return
+        self.expr()
+        if not self.ts.match("SEMICOLON"):
+            self.error(self.ts.peek(), "Expected ';' after const declaration", [";"])
+
     def declarator(self) -> None:
         if not self.ts.match("IDENTIFIER"):
             self.error(self.ts.peek(), "Expected identifier in declaration", ["IDENTIFIER"])
             return
         self.array_decl()
         if self.ts.match("ASSIGN"):
-            self.expr()
+            if self.ts.peek().kind == "LBRACE":
+                self.array_initializer()
+            else:
+                self.expr()
 
     def array_decl(self) -> None:
         while self.ts.match("LBRACKET"):
@@ -226,6 +248,21 @@ class Parser:
                 if not self.ts.match("RBRACKET"):
                     self.error(self.ts.peek(), "Expected ']'", ["]"])
 
+    def array_initializer(self) -> None:
+        # { expr (, expr)* }
+        if not self.ts.match("LBRACE"):
+            self.error(self.ts.peek(), "Expected '{' to start array initializer", ["{"])
+            return
+        if self.ts.peek().kind == "RBRACE":
+            self.error(self.ts.peek(), "Array initializer cannot be empty", ["expression"])
+            self.ts.advance()  # consume RBRACE to continue
+            return
+        self.expr()
+        while self.ts.match("COMMA"):
+            self.expr()
+        if not self.ts.match("RBRACE"):
+            self.error(self.ts.peek(), "Expected '}' to close array initializer", ["}"])
+
     def block(self) -> None:
         if not self.ts.match("LBRACE"):
             self.error(self.ts.peek(), "Expected '{' to start block", ["{"])
@@ -234,8 +271,8 @@ class Parser:
             self.skip_newlines()
             if self.ts.peek().kind == "RBRACE":
                 break
-            if self.ts.peek().kind.startswith("KEYWORD_TYPE"):
-                self.declaration()
+            if self.ts.peek().kind.startswith("KEYWORD_TYPE") or self.ts.peek().kind == "KEYWORD_CONST":
+                self.declaration_or_function()
             else:
                 self.statement()
         if not self.ts.match("RBRACE"):
@@ -495,14 +532,25 @@ class Parser:
             self.expr()
             if not self.ts.match("COLON"):
                 self.error(self.ts.peek(), "Expected ':' after phase value", [":"])
-            self.block()
+            self.case_body()
         if self.ts.peek().lexeme == "bareminimum":
             self.ts.advance()
             if not self.ts.match("COLON"):
                 self.error(self.ts.peek(), "Expected ':' after bareminimum", [":"])
-            self.block()
+            self.case_body()
         if not self.ts.match("RBRACE"):
             self.error(self.ts.peek(), "Expected '}' after choose cases", ["}"])
+
+    def case_body(self) -> None:
+        # Either a braced block or inline statements ending before next phase/bareminimum/}
+        if self.ts.peek().kind == "LBRACE":
+            self.block()
+            return
+        while not self.ts.at_end():
+            self.skip_newlines()
+            if self.ts.peek().lexeme in {"phase", "bareminimum"} or self.ts.peek().kind == "RBRACE":
+                return
+            self.statement()
 
     def control_flow_statement(self) -> None:
         # breakup ; | moveon ;
@@ -530,6 +578,9 @@ class Parser:
                 self.expr()
                 if not self.ts.match("RBRACKET"):
                     self.error(self.ts.peek(), "Expected ']' after index", ["]"])
+            elif self.ts.match("OP_INC") or self.ts.match("OP_DEC"):
+                # Postfix increment/decrement after a primary expression.
+                continue
             else:
                 break
 

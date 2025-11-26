@@ -122,14 +122,14 @@ reserved_symbol_follows = {
     ">=": {"symbol_del"},
     "<=": {"symbol_del"},
     # Unary
-    "++": {"space_del", "alphanum", "("},
-    "--": {"space_del", "alphanum", "("},
+    "++": {"space_del", "alphanum", "(", ";"},
+    "--": {"space_del", "alphanum", "(", ";"},
     # Other
     "(": {"symbol_del", "!"},
     ")": {"space_del", "{", "arith_op", "&", "|"},
     "[": {"space_del", "alphanum"},
     "]": {"space_del", "=", "<", ">"},
-    ";": {"space_del", "}","\t"},
+    ";": {"space_del", "}"},
     '"': {"space_del", "alphanum", "ascii"},
     "<<": {"space_del", '"', "alphanum", "("},
     ">>": {"space_del", "alphabet"},
@@ -141,8 +141,7 @@ reserved_symbol_follows = {
 # --- Identifier followers ---------------------------------------------------
 
 identifier_follows = {
-    "variant_1": {"space_del", "arith_op", "=", "&", "|", "["},
-    "variant_2": {"space_del", "arith_op", "&", "|", "=", "]", "(", ")", ";"},
+    "default": {"space_del", "arith_op", "=", "&", "|", "[", "]", "(", ")", ";", ":"},
 }
 
 
@@ -185,3 +184,6 @@ expanded_reserved_symbol_follows = {
 expanded_identifier_follows = {
     name: expand_follow(spec) for name, spec in identifier_follows.items()
 }
+
+
+

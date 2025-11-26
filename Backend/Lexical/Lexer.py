@@ -6,7 +6,6 @@ from decimal import Decimal, InvalidOperation
 from typing import Iterable, List, Optional
 
 from .Literals import Literals
-from .Delims import valid_delimiters_identifier
 from Backend.Syntax.token_map import (
     expanded_reserved_word_follows,
     expanded_identifier_follows,
@@ -83,24 +82,21 @@ SINGLE_CHAR_TOKENS = {
     "!": "BANG",
     "&": "AMPERSAND",
     "|": "PIPE",
-    "#": "HASH",
 }
 
 
 TOKEN_TYPE_OVERRIDES: dict = {}
 
-IDENTIFIER_DELIMS = set(valid_delimiters_identifier)
+IDENTIFIER_DELIMS = expanded_identifier_follows.get("default", set())
 ALPHA = Literals["alphabet"]
 DIGIT = Literals["digit"]
 ALNUM = Literals["alphanumeric"]
 WHITESPACE = {" ", "\r", "\t", "\f"}
-DISALLOWED_IDENTIFIERS = {"true", "false"}
+DISALLOWED_IDENTIFIERS: set[str] = set()
 # Disallow only symbols that should never appear immediately after an identifier.
 BAD_SYMBOLS_AFTER_IDENTIFIER = set("!@#$^|\\?~")
 IDENT_FOLLOW_CHARS = (
-    expanded_identifier_follows.get("variant_1", set())
-    | expanded_identifier_follows.get("variant_2", set())
-    | IDENTIFIER_DELIMS
+    IDENTIFIER_DELIMS
     | WHITESPACE
     | {"\n", "\0"}
 )
@@ -234,11 +230,6 @@ class Lexer:
         entry = RESERVED_WORDS.get(lexeme)
         if entry is None:
             lowered = lexeme.lower()
-            if lowered in DISALLOWED_IDENTIFIERS:
-                raise LexerError(
-                    f"`{lexeme}` is not valid in this language; use `greenflag` or `redflag` at {line}:{col}",
-                    self._partial_tokens,
-                )
             if lowered in RESERVED_WORDS:
                 raise LexerError(
                     f"Reserved word `{lowered}` must be written in lowercase at {line}:{col}",

@@ -7,6 +7,7 @@ import "./App.css";
 
 type TokenRow = { lexeme: string; token: string; tokenType: string };
 type TokenStatus = "idle" | "loading" | "ready" | "error";
+type LexResult = { rows: TokenRow[]; hasLexError: boolean };
 
 const TOKEN_STATUS_LABEL: Record<TokenStatus, string> = {
   idle: "Idle",
@@ -15,7 +16,7 @@ const TOKEN_STATUS_LABEL: Record<TokenStatus, string> = {
   error: "Error",
 };
 
-const DEFAULT_SOURCE = `love main() {
+const DEFAULT_SOURCE = `love () {
   express << "hello, lover";
 }
 `;
@@ -53,7 +54,7 @@ export default function App() {
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [lexError, setLexError] = useState<string | null>(null);
 
-  const lexSource = useCallback(async (text: string) => {
+  const lexSource = useCallback(async (text: string): Promise<LexResult> => {
     const body = text ?? "";
     if (!body.trim()) {
       setRows([]);
@@ -61,7 +62,7 @@ export default function App() {
       setError(null);
       setLexError(null);
       setLastRunAt(null);
-      return [];
+      return { rows: [], hasLexError: false };
     }
 
     setStatus("loading");
@@ -90,20 +91,18 @@ export default function App() {
 
       setRows(nextRows);
       setStatus("ready");
-      setLexError(
-        typeof payload?.error === "string" && payload.error.trim()
-          ? (payload.error as string)
-          : null
-      );
+      const hasLexError =
+        typeof payload?.error === "string" && payload.error.trim().length > 0;
+      setLexError(hasLexError ? (payload.error as string) : null);
       setLastRunAt(new Date());
-      return nextRows;
+      return { rows: nextRows, hasLexError };
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to lex source.";
       setError(message);
       setLexError(message);
       setStatus("error");
-      return [];
+      return { rows: [], hasLexError: true };
     }
   }, []);
 
@@ -168,8 +167,8 @@ export default function App() {
   useEffect(() => {
     const handle = setTimeout(() => {
       void (async () => {
-        const toks = await lexSource(source);
-        if (toks.length) {
+        const { rows: toks, hasLexError } = await lexSource(source);
+        if (!hasLexError && toks.length) {
           await syntaxSource();
         } else {
           setValidation(null);

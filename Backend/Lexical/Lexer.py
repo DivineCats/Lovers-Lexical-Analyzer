@@ -432,20 +432,29 @@ class Lexer:
         return "- " + "- ".join(parts)
 
     def _validate_symbol_follow(self, lexeme: str, line: int, col: int) -> None:
-        if lexeme == "=":
-            return
-        if lexeme == ";":
-            return
-        if lexeme in {">", "<", ">=", "<=", "==", "!=", ">>", "<<", "&&", "||"}:
-            return
-        if lexeme in {"(", ")", "[", "]", "{", "}"}:
-            return
         allowed = expanded_reserved_symbol_follows.get(lexeme)
         if not allowed:
             return
-        nxt = self._peek_non_whitespace()
-        if nxt == "\0":
+        # If immediate next char is whitespace and whitespace is allowed, accept.
+        ws_chars = {" ", "\t", "\r", "\n"} | WHITESPACE
+        immediate = self._peek()
+        if immediate in ws_chars and allowed.intersection(ws_chars):
             return
+
+        # Otherwise, find next non-whitespace character (tracking any whitespace seen).
+        i = self.pos
+        saw_ws = immediate in ws_chars
+        while i < self.length and self.source[i] in ws_chars:
+            i += 1
+        if i >= self.length:
+            if saw_ws and allowed.intersection(ws_chars):
+                return
+            expected = self._format_expected(allowed)
+            raise LexerError(
+                f"Unexpected end of input after operator `{lexeme}` at {line}:{col}\n\nExpected one of: {expected}",
+                self._partial_tokens,
+            )
+        nxt = self.source[i]
         if nxt not in allowed:
             expected = self._format_expected(allowed)
             raise LexerError(

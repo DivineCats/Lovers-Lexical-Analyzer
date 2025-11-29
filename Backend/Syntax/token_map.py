@@ -117,10 +117,10 @@ reserved_symbol_follows = {
     # Relational
     "==": {"space_del", "alphanum"},
     "!=": {"space_del", "alphanum"},
-    ">": {"symbol_del"},
-    "<": {"symbol_del"},
-    ">=": {"symbol_del"},
-    "<=": {"symbol_del"},
+    ">": {"symbol_del", "space_del", "="},
+    "<": {"symbol_del", "space_del"},
+    ">=": {"symbol_del", "space_del"},
+    "<=": {"symbol_del", "space_del"},
     # Unary
     "++": {"space_del", "alphanum", "(", ";"},
     "--": {"space_del", "alphanum", "(", ";"},
@@ -142,6 +142,11 @@ reserved_symbol_follows = {
 
 identifier_follows = {
     "default": {"space_del", "arith_op", "=", "&", "|", "[", "]", "(", ")", ";", ":"},
+}
+
+string_literal_follows = {
+    # Strings can be followed by typical expression delimiters/operators.
+    "default": {"space_del", "arith_op", "=", "&", "|", ")", "]", ",", ";"},
 }
 
 
@@ -183,6 +188,10 @@ expanded_reserved_symbol_follows = {
 
 expanded_identifier_follows = {
     name: expand_follow(spec) for name, spec in identifier_follows.items()
+}
+
+expanded_string_literal_follows = {
+    name: expand_follow(spec) for name, spec in string_literal_follows.items()
 }
 
 

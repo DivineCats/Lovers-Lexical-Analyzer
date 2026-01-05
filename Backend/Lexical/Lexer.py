@@ -150,7 +150,7 @@ class Lexer:
     def scan_tokens_collect_errors(self) -> (List[Token], List[str]):
         tokens: List[Token] = []
         errors: List[str] = []
-        self._partial_tokens = tokens
+        self._partial_tokens = tokens   
         while not self._is_at_end():
             self.start = self.pos
             start_line, start_col = self.line, self.column

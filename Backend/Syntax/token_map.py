@@ -50,7 +50,8 @@ set_defs = {
     "express_end_del": {"rel_del", '"'},
     "give_end_del": {"space_del", "alphabet"},
     "iden_del" : {"space_del", "arith_op", "=", "&", "|", "["},
-    "num_del" : {"space_del", "arith_op", "&", "|", "=", "]", "(", ")", ";"},
+    "dear_dearest_del": {":", ",", ";", "arith_op", "=", "!", "&", "|", ")", "}", "]", "symbol_del"},
+    "num_del": {"space_del", "arith_op", "&", "|", "=", "]", "(", ")", ";"},
 
 }
 
@@ -147,7 +148,7 @@ identifier_follows = {
 }
 
 int_lit = {
-    "int_lit": {"int_lit"},
+    "int_lit": {"dear_dearest_del"},
 }
 
 string_lit = {

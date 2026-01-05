@@ -23,7 +23,7 @@ def chars(items: Iterable[str]) -> Set[str]:
 
 set_defs = {
     "space_del": {" ", "\t", "\n"},
-    "symbol_del": {">", "<"},  # can be extended if needed
+    "symbol_del": {">", "<", "space_del"},  # can be extended if needed
     "arith_op": {"+", "-", "*", "/", "%", "<", ">"},
     "gen_op": {"+", "-", "*", "/", "%", "<", ">", "=", "!", "&", "|"},
     "sim_del": {"/", ";"},
@@ -125,7 +125,7 @@ reserved_symbol_follows = {
     "++": {"space_del", "alphanum", "(", ";"},
     "--": {"space_del", "alphanum", "(", ";"},
     # Other
-    "(": {"symbol_del", "!"},
+    "(": {"space_del", "!", ")"},
     ")": {"space_del", "{", "arith_op", "&", "|"},
     "[": {"space_del", "alphanum"},
     "]": {"space_del", "=", "<", ">"},

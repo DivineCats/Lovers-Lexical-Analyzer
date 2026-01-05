@@ -420,7 +420,7 @@ class Lexer:
         if ALNUM.issubset(allowed):
             parts.append("alphanum")
         if " " in allowed or "\t" in allowed:
-            parts.append("whitespace")
+            parts.append("space_del")
         for ch in ["(", ")", "[", "]", "{", "}", ";", ",", ":"]:
             if ch in allowed:
                 parts.append(repr(ch))

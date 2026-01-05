@@ -16,8 +16,24 @@
 .terminal-panel .header {
   font-weight: 700;
   color: #fff;
-  padding: 1px 5px;
+  padding: 8px 12px;
   border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+.error-summary {
+  display: flex;
+  gap: 20px;
+  font-size: 13px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.error-count {
+  color: #f6e7e7;
+  font-weight: 600;
 }
 
 .term-log {
@@ -31,6 +47,9 @@
   overflow: auto;
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .term-log.is-error {
@@ -41,8 +60,107 @@
   border-color: rgba(118, 214, 173, 0.45);
 }
 
-.term-log__line + .term-log__line {
-  margin-top: 6px;
+.term-log__empty {
+  color: rgba(246, 231, 231, 0.5);
+  font-style: italic;
+}
+
+.error-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.error-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.error-details {
+  margin-left: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.error-detail-title {
+  color: #f6e7e7;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.error-detail-line {
+  color: #f6e7e7;
+}
+
+.token-value {
+  color: #ffbf80;
+  font-weight: 600;
+  background: rgba(255, 191, 128, 0.1);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+
+.expected-tokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.expected-token {
+  display: inline-block;
+  padding: 4px 10px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.error-badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.error-badge--lexical {
+  background: #e67e22;
+  color: #fff;
+}
+
+.error-badge--syntax {
+  background: #e74c3c;
+  color: #fff;
+}
+
+.error-badge--semantic {
+  background: #3498db;
+  color: #fff;
+}
+
+.error-message {
+  color: #f6e7e7;
+  flex: 1;
+  min-width: 200px;
+}
+
+.error-location {
+  padding: 3px 8px;
+  background: rgba(231, 76, 60, 0.8);
+  border: 1px solid rgba(192, 57, 43, 0.6);
+  border-radius: 4px;
+  font-size: 11px;
+  color: #fff;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .term-input-row {

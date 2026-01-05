@@ -48,7 +48,7 @@ export default function TokenTable({
         </div>
       </div>
 
-      <div className="tokens__body">
+      <div className="tokens__body" key={status}>
         {status === "loading" && (
           <div className="tokens__empty">Lexing source…</div>
         )}
@@ -58,7 +58,7 @@ export default function TokenTable({
         {hasRows &&
           rows.map((r, i) => (
             <div
-              key={`${r.lexeme}-${r.token}-${i}`}
+              key={i}
               className={`tokens__row ${i % 2 === 1 ? "is-alt" : ""}`}
             >
               <div className="tokens__cell tokens__cell--lexeme">

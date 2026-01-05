@@ -53,6 +53,7 @@ export default function App() {
   const [lastRunAt, setLastRunAt] = useState<Date | null>(null);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [lexError, setLexError] = useState<string | null>(null);
+  const [lexErrors, setLexErrors] = useState<string[]>([]);
 
   const lexSource = useCallback(async (text: string): Promise<LexResult> => {
     const body = text ?? "";
@@ -61,6 +62,7 @@ export default function App() {
       setStatus("idle");
       setError(null);
       setLexError(null);
+      setLexErrors([]);
       setLastRunAt(null);
       return { rows: [], hasLexError: false };
     }
@@ -68,6 +70,7 @@ export default function App() {
     setStatus("loading");
     setError(null);
     setLexError(null);
+    setLexErrors([]);
 
     try {
       const resp = await fetch(LEX_ENDPOINT, {
@@ -91,16 +94,27 @@ export default function App() {
 
       setRows(nextRows);
       setStatus("ready");
-      const hasLexError =
-        typeof payload?.error === "string" && payload.error.trim().length > 0;
-      setLexError(hasLexError ? (payload.error as string) : null);
+      
+      // Check for multiple errors
+      const hasMultipleErrors = Array.isArray(payload?.errors) && payload.errors.length > 0;
+      const hasSingleError = typeof payload?.error === "string" && payload.error.trim().length > 0;
+      
+      if (hasMultipleErrors) {
+        setLexErrors(payload.errors as string[]);
+        setLexError(payload.errors.join("\n\n"));
+      } else if (hasSingleError) {
+        setLexError(payload.error as string);
+        setLexErrors([payload.error as string]);
+      }
+      
       setLastRunAt(new Date());
-      return { rows: nextRows, hasLexError };
+      return { rows: nextRows, hasLexError: hasMultipleErrors || hasSingleError };
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to lex source.";
       setError(message);
       setLexError(message);
+      setLexErrors([message]);
       setStatus("error");
       return { rows: [], hasLexError: true };
     }
@@ -203,6 +217,7 @@ export default function App() {
           <Terminal
             validation={validation}
             lexError={lexError}
+            lexErrors={lexErrors}
           />
         </section>
       </main>

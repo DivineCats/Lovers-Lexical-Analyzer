@@ -39,6 +39,12 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  opacity: 1;
+  transition: opacity 0.15s ease-out;
+}
+
+.tokens__body[key="loading"] {
+  opacity: 0.5;
 }
 
 /* individual row */
@@ -51,6 +57,7 @@
   color: var(--muted);
   background: #875656;
   min-width: 0;
+  will-change: auto;
 }
 
 .tokens__row.is-alt {

@@ -57,7 +57,7 @@ export default function App() {
 
   const lexSource = useCallback(async (text: string): Promise<LexResult> => {
     const body = text ?? "";
-    if (!body.trim()) {
+    if (!body) {
       setRows([]);
       setStatus("idle");
       setError(null);

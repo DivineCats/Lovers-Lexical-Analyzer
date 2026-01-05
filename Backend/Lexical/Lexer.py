@@ -10,6 +10,8 @@ from Backend.Syntax.token_map import (
     expanded_reserved_word_follows,
     expanded_identifier_follows,
     expanded_reserved_symbol_follows,
+    expanded_int_lit,
+    expanded_string_lit,
 )
 
 RESERVED_WORDS = {
@@ -87,7 +89,9 @@ SINGLE_CHAR_TOKENS = {
 
 TOKEN_TYPE_OVERRIDES: dict = {}
 
-IDENTIFIER_DELIMS = expanded_identifier_follows.get("default", set())
+IDENTIFIER_DELIMS = expanded_identifier_follows.get("iden_del", set())
+NUMBER_DELIMS = expanded_int_lit.get("int_lit", set())
+STRING_DELIMS = expanded_string_lit.get("string_lit", set())
 ALPHA = Literals["alphabet"]
 DIGIT = Literals["digit"]
 ALNUM = Literals["alphanumeric"]
@@ -98,7 +102,10 @@ BAD_SYMBOLS_AFTER_IDENTIFIER = set("!@#$^|\\?~")
 IDENT_FOLLOW_CHARS = (
     IDENTIFIER_DELIMS
     | WHITESPACE
-    | {"\n", "\0"}
+)
+NUMBER_FOLLOW_CHARS = (
+    NUMBER_DELIMS
+    | WHITESPACE
 )
 
 @dataclass
@@ -224,7 +231,7 @@ class Lexer:
                 pass  # allow '||'
             else:
                 raise LexerError(
-                    f"Invalid delimiter `{nxt}` after identifier `{lexeme}` at {line}:{col}\n\nExpected: {self._format_expected(IDENT_FOLLOW_CHARS)}",
+                    f"Invalid delimiter after identifier `{lexeme}` at {line}:{col}\n\nExpected: {self._format_expected(IDENT_FOLLOW_CHARS)}",
                     self._partial_tokens,
                 )
         entry = RESERVED_WORDS.get(lexeme)
@@ -233,6 +240,14 @@ class Lexer:
             if lowered in RESERVED_WORDS:
                 raise LexerError(
                     f"Reserved word `{lowered}` must be written in lowercase at {line}:{col}",
+                    self._partial_tokens,
+                )
+            # Validate delimiter for regular identifiers too
+            nxt = self._peek()
+            allowed = expanded_identifier_follows.get("iden_del", IDENT_FOLLOW_CHARS)
+            if nxt not in allowed:
+                raise LexerError(
+                    f"Invalid delimiter after identifier `{lexeme}` at {line}:{col}\n\nExpected: {self._format_expected(allowed)}",
                     self._partial_tokens,
                 )
         if entry:
@@ -264,12 +279,10 @@ class Lexer:
                 self._advance()
         lexeme = self.source[self.start:self.pos]
         nxt = self._peek()
-        if nxt not in IDENT_FOLLOW_CHARS:
-            tok = Token(token_kind, lexeme, literal=lexeme, line=line, column=col)
-            self._partial_tokens.append(tok)
+        if nxt not in NUMBER_FOLLOW_CHARS:
             human_kind = "float" if token_kind == "FLOAT_LITERAL" else "integer"
             raise LexerError(
-                f"Invalid delimiter after {human_kind} {lexeme}: {nxt} at {line}:{self.column}\nExpected: {self._format_expected(IDENT_FOLLOW_CHARS)}",
+                f"Invalid delimiter after {human_kind} {lexeme}: {nxt} at {line}:{self.column}\nExpected: {self._format_expected(NUMBER_FOLLOW_CHARS)}",
                 self._partial_tokens,
             )
         if token_kind == "INT_LITERAL":
@@ -351,6 +364,13 @@ class Lexer:
             if c == quote:
                 lexeme = self.source[self.start:self.pos]
                 inner = "".join(content_chars)
+                # Validate delimiter after closing quote
+                nxt = self._peek()
+                if nxt not in STRING_DELIMS:
+                    raise LexerError(
+                        f"Invalid delimiter after string literal: {nxt} at {line}:{self.column}\nExpected: {self._format_expected(STRING_DELIMS)}",
+                        self._partial_tokens,
+                    )
                 return Token("STRING_LITERAL", lexeme, literal=inner, line=line, column=col)
             if c == "\n":
                 raise LexerError(f"Unterminated string at {line}:{col}", self._partial_tokens)
@@ -419,6 +439,10 @@ class Lexer:
         parts: List[str] = []
         if ALNUM.issubset(allowed):
             parts.append("alphanum")
+        elif ALPHA.issubset(allowed):
+            parts.append("alphabet")
+        elif DIGIT.issubset(allowed):
+            parts.append("digit")
         if " " in allowed or "\t" in allowed:
             parts.append("space_del")
         for ch in ["(", ")", "[", "]", "{", "}", ";", ",", ":"]:
@@ -432,9 +456,12 @@ class Lexer:
         return "- " + "- ".join(parts)
 
     def _validate_symbol_follow(self, lexeme: str, line: int, col: int) -> None:
+        # Get allowed delimiters for this symbol, or use default (whitespace)
         allowed = expanded_reserved_symbol_follows.get(lexeme)
         if not allowed:
-            return
+            # Default: any symbol without specific rules must be followed by whitespace or EOF
+            allowed = WHITESPACE | {"\n", "\0"}
+        
         # If immediate next char is whitespace and whitespace is allowed, accept.
         ws_chars = {" ", "\t", "\r", "\n"} | WHITESPACE
         immediate = self._peek()
@@ -446,19 +473,11 @@ class Lexer:
         saw_ws = immediate in ws_chars
         while i < self.length and self.source[i] in ws_chars:
             i += 1
-        if i >= self.length:
-            if saw_ws and allowed.intersection(ws_chars):
-                return
-            expected = self._format_expected(allowed)
-            raise LexerError(
-                f"Unexpected end of input after operator `{lexeme}` at {line}:{col}\n\nExpected one of: {expected}",
-                self._partial_tokens,
-            )
-        nxt = self.source[i]
+        nxt = self.source[i] if i < self.length else "\0"
         if nxt not in allowed:
             expected = self._format_expected(allowed)
             raise LexerError(
-                f"Invalid delimiter `{nxt}` after operator `{lexeme}` at {line}:{col}\n\nExpected one of: {expected}",
+                f"Invalid delimiter after operator `{lexeme}` at {line}:{col}\n\nExpected: {expected}",
                 self._partial_tokens,
             )
 

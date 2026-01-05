@@ -156,6 +156,19 @@ export default function App() {
         (payload?.error as string | undefined) ??
         raw?.trim() ??
         `Validation failed (HTTP ${resp.status})`;
+
+      const syntaxErrors = Array.isArray(payload?.errors)
+        ? (payload.errors as any[]).map(err => ({
+            ok: Boolean(err?.ok ?? false),
+            message: (err?.message as string) ?? "Syntax error",
+            code: err?.code as string | undefined,
+            token: err?.token as ValidationResult["token"],
+            expected: Array.isArray(err?.expected)
+              ? (err.expected as string[])
+              : undefined,
+          }))
+        : undefined;
+
       const failure: ValidationResult = {
         ok: false,
         message: failureMessage,
@@ -164,6 +177,7 @@ export default function App() {
         expected: Array.isArray(payload?.expected)
           ? (payload.expected as string[])
           : undefined,
+        errors: syntaxErrors,
       };
       setValidation(failure);
       return failure;
@@ -183,14 +197,15 @@ export default function App() {
       void (async () => {
         const { rows: toks, hasLexError } = await lexSource(source);
         if (!hasLexError && toks.length) {
-          await syntaxSource();
+          // Optional: add syntax validation here if needed
+          setValidation(null);
         } else {
           setValidation(null);
         }
       })();
     }, 400);
     return () => clearTimeout(handle);
-  }, [lexSource, syntaxSource, source]);
+  }, [lexSource, source]);
 
   const handleEditorChange = useCallback(
     (files: FileTab[], activeId: string) => {

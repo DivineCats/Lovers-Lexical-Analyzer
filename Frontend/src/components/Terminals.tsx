@@ -7,7 +7,7 @@ export type ValidationTokenInfo = {
   column?: number;
 };
 
-export type ValidationResult = {
+export type ValidationError = {
   ok: boolean;
   message: string;
   code?: string;
@@ -15,8 +15,17 @@ export type ValidationResult = {
   expected?: string[];
 };
 
+export type ValidationResult = {
+  ok: boolean;
+  message: string;
+  code?: string;
+  token?: ValidationTokenInfo;
+  expected?: string[];
+  errors?: ValidationError[];
+};
+
 export type ErrorItem = {
-  type: "lexical" | "syntax" | "semantic";
+  type: "lexical" | "semantic";
   message: string;
   line?: number;
   column?: number;
@@ -33,6 +42,19 @@ type Props = {
 export default function Terminal({ validation = null, lexError = null, lexErrors = [] }: Props) {
   // Parse lexical errors into structured format
   const errors: ErrorItem[] = [];
+
+  const extractExpectedTokens = (lines: string[]): string[] => {
+    for (const line of lines) {
+      const match = line.match(/expected(?: one of)?\s*[:\-]\s*(.*)/i);
+      if (match && match[1]) {
+        return match[1]
+          .split(/[-,\s]+/)
+          .map(t => t.trim().replace(/^['"`]+|['"`]+$/g, ""))
+          .filter(t => t.length > 0);
+      }
+    }
+    return [];
+  };
   
   if (lexErrors.length > 0) {
     lexErrors.forEach((err) => {
@@ -42,18 +64,7 @@ export default function Terminal({ validation = null, lexError = null, lexErrors
       // Extract line and column if present (format: "at line X, column Y" or "at X:Y")
       const locationMatch = firstLine.match(/at (?:line )?(\d+)[,:]\s*(?:column )?(\d+)/i);
       
-      // Extract expected tokens
-      let expectedTokens: string[] = [];
-      const expectedLine = lines.find(line => line.toLowerCase().includes("expected one of:"));
-      if (expectedLine) {
-        const expectedPart = expectedLine.split(/expected one of:/i)[1];
-        if (expectedPart) {
-          expectedTokens = expectedPart
-            .split(/[,\s]+/)
-            .map(t => t.trim().replace(/^['"`-]+|['"`-]+$/g, ''))
-            .filter(t => t.length > 0);
-        }
-      }
+      const expectedTokens = extractExpectedTokens(lines);
       
       errors.push({
         type: "lexical",
@@ -68,18 +79,7 @@ export default function Terminal({ validation = null, lexError = null, lexErrors
     const firstLine = lines[0] || "";
     const locationMatch = firstLine.match(/at (?:line )?(\d+)[,:]\s*(?:column )?(\d+)/i);
     
-    // Extract expected tokens
-    let expectedTokens: string[] = [];
-    const expectedLine = lines.find(line => line.toLowerCase().includes("expected one of:"));
-    if (expectedLine) {
-      const expectedPart = expectedLine.split(/expected one of:/i)[1];
-      if (expectedPart) {
-        expectedTokens = expectedPart
-          .split(/[,\s]+/)
-          .map(t => t.trim().replace(/^['"`-]+|['"`-]+$/g, ''))
-          .filter(t => t.length > 0);
-      }
-    }
+    const expectedTokens = extractExpectedTokens(lines);
     
     errors.push({
       type: "lexical",
@@ -91,9 +91,8 @@ export default function Terminal({ validation = null, lexError = null, lexErrors
   }
 
   const lexicalCount = errors.filter(e => e.type === "lexical").length;
-  const syntaxCount = 0; // Disabled for now
-  const semanticCount = 0; // Disabled for now
-  const hasErrors = lexicalCount > 0 || syntaxCount > 0 || semanticCount > 0;
+  const semanticCount = errors.filter(e => e.type === "semantic").length;
+  const hasErrors = lexicalCount > 0 || semanticCount > 0;
 
   return (
     <div className="terminal-panel">
@@ -102,8 +101,7 @@ export default function Terminal({ validation = null, lexError = null, lexErrors
         {hasErrors && (
           <div className="error-summary">
             {lexicalCount > 0 && <span className="error-count">Lexical: {lexicalCount}</span>}
-            {/* {syntaxCount > 0 && <span className="error-count">Syntax: {syntaxCount}</span>} */}
-            {/* {semanticCount > 0 && <span className="error-count">Semantic: {semanticCount}</span>} */}
+            {semanticCount > 0 && <span className="error-count">Semantic: {semanticCount}</span>}
           </div>
         )}
         {errors.length === 0 && (

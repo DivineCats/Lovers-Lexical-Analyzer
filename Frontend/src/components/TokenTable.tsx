@@ -49,12 +49,6 @@ export default function TokenTable({
       </div>
 
       <div className="tokens__body" key={status}>
-        {status === "loading" && (
-          <div className="tokens__empty">Lexing source…</div>
-        )}
-        {status === "idle" && (
-          <div className="tokens__empty">Start typing to see tokens.</div>
-        )}
         {hasRows &&
           rows.map((r, i) => (
             <div
@@ -72,8 +66,8 @@ export default function TokenTable({
               </div>
             </div>
           ))}
-        {status !== "loading" && !hasRows && (
-          <div className="tokens__empty">No tokens found.</div>
+        {!hasRows && (
+          <div className="tokens__empty">Press Run to see tokens.</div>
         )}
       </div>
     </div>

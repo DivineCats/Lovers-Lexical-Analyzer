@@ -119,15 +119,16 @@ reserved_symbol_follows = {
     ">=": {"symbol_del"},
     "<=": {"symbol_del"},
     # Unary
-    "++": {"alphabet", ";"},
-    "--": {"alphabet", ";"},
+    "++": {"space_del", ";", ")"},
+    "--": {"space_del", ";", ")"},
     # Other
     "(": {"symbol_del", "!", ")"},
     ")": {"space_del", "{", "arith_op", "&", "|"},
     "[": {"log_del"},
     "]": {"space_del", "=", "<", ">"},
     "{": {"space_del"},
-    "}": {"space_del", "alphabet"},    ";": {"space_del"},
+    "}": {"space_del", "alphabet"},   
+    ";": {"space_del", "eof"},
     ":": {"space_del"},
     "::":{"alphabet"},
     '"': {"ascii", "space_del", ";", ")", "<"},  # Combined
@@ -141,8 +142,22 @@ reserved_symbol_follows = {
 # --- Identifier followers ---------------------------------------------------
 
 identifier_follows = {
-    "variant_1": {"space_del", "arith_op", "=", "&", "|", "["},
-    "variant_2": {"space_del", "arith_op", "&", "|", "=", "]", "(", ")", ";"},
+    "iden_del": {"iden_del"}
+
+}
+
+int_lit = {
+    "int_lit": {"int_lit"},
+}
+
+string_lit = {
+    "string_lit": {
+    "space_del", 
+    ";", ",", ")", "}", "]",  # Separators
+    "+",                     # Concatenation 
+    "==", "!=",              # Comparison 
+    "<<"                     # Output chaining 
+},
 }
 
 
@@ -158,6 +173,8 @@ def resolve_set(name: str) -> Set[str]:
         return set(alphanum)
     if name == "space_del":
         return {" ", "\t", "\n"}
+    if name == "eof":
+        return {"\0"}
     if name == "ascii":
         return set(ascii_printable)
     if name in set_defs:
@@ -192,6 +209,14 @@ expanded_reserved_symbol_follows = {
 
 expanded_identifier_follows = {
     name: expand_follow(spec) for name, spec in identifier_follows.items()
+}
+
+expanded_int_lit = {
+    name: expand_follow(spec) for name, spec in int_lit.items()
+}
+
+expanded_string_lit = {
+    name: expand_follow(spec) for name, spec in string_lit.items()
 }
 
 

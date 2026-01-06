@@ -5,8 +5,8 @@ from dataclasses import dataclass, asdict
 from decimal import Decimal, InvalidOperation
 from typing import Iterable, List, Optional
 
-from .Literals import Literals
 from Backend.Syntax.token_map import (
+    Literals,
     expanded_reserved_word_follows,
     expanded_identifier_follows,
     expanded_reserved_symbol_follows,
@@ -82,8 +82,7 @@ SINGLE_CHAR_TOKENS = {
     ">": "GT",
     "<": "LT",
     "!": "BANG",
-    "&": "AMPERSAND",
-    "|": "PIPE",
+    "|": "OR",
 }
 
 
@@ -144,7 +143,7 @@ class Lexer:
         tokens.append(Token("EOF", "", line=self.line, column=self.column))
         return tokens
 
-    def scan_tokens_collect_errors(self) -> (List[Token], List[str]):
+    def scan_tokens_collect_errors(self) -> tuple[List[Token], List[str]]:
         tokens: List[Token] = []
         errors: List[str] = []
         self._partial_tokens = tokens   
@@ -221,7 +220,7 @@ class Lexer:
         lexeme = self.source[self.start:self.pos]
         if len(lexeme) > 20:
             raise LexerError(
-                f"Identifier `{lexeme}` exceeds the maximum length of 20 characters at {line}:{col}",
+                f"Identifier `{lexeme}` exceeds the maximum length of 20 characters (current: {len(lexeme)}) at {line}:{col}",
                 self._partial_tokens,
             )
         nxt = self._peek()
@@ -469,27 +468,44 @@ class Lexer:
             parts.append('"')
             seen.add('"')
         
+        # Single quote (special handling for clarity)
+        if "'" in allowed and "'" not in seen:
+            parts.append("'")
+            seen.add("'")
 
-
-        # Any remaining multi-character tokens (e.g., &&, ||) not yet listed
+        # Collect remaining characters and group into ranges
+        remaining = []
         for item in sorted(allowed):
             # Skip if already covered above
-            if item in seen or item == '"' or item == "'":  # Skip already-handled items and quotes
+            if item in seen or len(item) > 1:  # Skip multi-char tokens for now
                 continue
-            # Determine what label to use for this item
-            if item == "\0":
-                label = "EOF"
-            elif item == "\t":
-                label = "tab"
-            elif item == "\n":
-                label = "newline"
-            elif item == " ":
-                label = "space"
-            else:
-                label = item
-            if label not in seen:
-                parts.append(label if len(item) > 1 else item)
-                seen.add(label)
+            remaining.append(item)
+        
+        # Group consecutive characters into ranges
+        if remaining:
+            i = 0
+            while i < len(remaining):
+                start = remaining[i]
+                end = start
+                # Find consecutive characters
+                while i + 1 < len(remaining) and ord(remaining[i + 1]) == ord(remaining[i]) + 1:
+                    i += 1
+                    end = remaining[i]
+                
+                # Format as range if 3+ consecutive, otherwise list individually
+                if ord(end) - ord(start) >= 2:  # 3 or more consecutive
+                    parts.append(f"{start}:{end}")
+                else:
+                    # Add individual characters
+                    for j in range(ord(start), ord(end) + 1):
+                        parts.append(chr(j))
+                i += 1
+        
+        # Add remaining multi-character tokens (e.g., &&, ||)
+        for item in sorted(allowed):
+            if len(item) > 1 and item not in seen:
+                parts.append(item)
+                seen.add(item)
 
         if not parts:
             parts.append(", ".join(sorted(a for a in allowed)))
@@ -524,7 +540,7 @@ class Lexer:
 def tokenize(source: str) -> List[Token]:
     return Lexer(source).scan_tokens()
 
-def tokenize_with_errors(source: str) -> (List[Token], List[str]):
+def tokenize_with_errors(source: str) -> tuple[List[Token], List[str]]:
     return Lexer(source).scan_tokens_collect_errors()
 
 def _format_tokenizer(tok: Token) -> str:

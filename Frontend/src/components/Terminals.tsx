@@ -39,7 +39,7 @@ type Props = {
   lexErrors?: string[];
 };
 
-export default function Terminal({ validation = null, lexError = null, lexErrors = [] }: Props) {
+export default function Terminal({ lexError = null, lexErrors = [] }: Props) {
   // Parse lexical errors into structured format
   const errors: ErrorItem[] = [];
 

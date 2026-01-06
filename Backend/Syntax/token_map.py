@@ -89,6 +89,7 @@ reserved_word_follows = {
     "boundaries": {"space_del"},
     "comeback": {";", "(", '"', "alphanum", "-", "!", "space_del"},
     "avoidant": {"give_end_del"},
+    
 }
 
 
@@ -128,7 +129,7 @@ reserved_symbol_follows = {
     "[": {"log_del"},
     "]": {"space_del", "=", "<", ">"},
     "{": {"space_del"},
-    "}": {"space_del", "alphabet"},   
+    "}": {"space_del", "alphabet" "eof"},   
     ";": {"space_del", "eof"},
     ":": {"space_del"},
     "::":{"alphabet"},

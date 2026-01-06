@@ -49,7 +49,7 @@ set_defs = {
     "end_quote_del": {"space_del", ";", "<"},
     "express_end_del": {"rel_del", '"'},
     "give_end_del": {"space_del", "alphabet"},
-    "iden_del" : {"space_del", "arith_op", "=", "&", "|", "["},
+    "iden_del" : {"space_del", "arith_op", "=", "&", "|", "[", "]"},
     "dear_dearest_del": {":", ",", ";", "arith_op", "=", "!", "&", "|", ")", "}", "]", "symbol_del"},
     "num_del": {"space_del", "arith_op", "&", "|", "=", "]", "(", ")", ";"},
 

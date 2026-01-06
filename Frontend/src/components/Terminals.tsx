@@ -49,7 +49,7 @@ export default function Terminal({ validation = null, lexError = null, lexErrors
       if (match && match[1]) {
         return match[1]
           .split(/[-,\s]+/)
-          .map(t => t.trim().replace(/^['"`]+|['"`]+$/g, ""))
+          .map(t => t.trim().replace(/^['`]+|['`]+$/g, ""))
           .filter(t => t.length > 0);
       }
     }

@@ -89,20 +89,17 @@ SINGLE_CHAR_TOKENS = {
 
 TOKEN_TYPE_OVERRIDES: dict = {}
 
-IDENTIFIER_DELIMS = expanded_identifier_follows.get("iden_del", set())
+IDENTIFIER_DELIMS = expanded_identifier_follows.get("identifier", set())
 NUMBER_DELIMS = expanded_int_lit.get("int_lit", set())
 STRING_DELIMS = expanded_string_lit.get("string_lit", set())
 ALPHA = Literals["alphabet"]
 DIGIT = Literals["digit"]
 ALNUM = Literals["alphanumeric"]
-WHITESPACE = {" ", "\r", "\t", "\f"}
+WHITESPACE = {" ", "\t", "\n"}
 DISALLOWED_IDENTIFIERS: set[str] = set()
 # Disallow only symbols that should never appear immediately after an identifier.
-BAD_SYMBOLS_AFTER_IDENTIFIER = set("!@#$^|\\?~")
-IDENT_FOLLOW_CHARS = (
-    IDENTIFIER_DELIMS
-    | WHITESPACE
-)
+BAD_SYMBOLS_AFTER_IDENTIFIER = set("!@#$^\\?~")
+IDENT_FOLLOW_CHARS = IDENTIFIER_DELIMS or WHITESPACE
 NUMBER_FOLLOW_CHARS = (
     NUMBER_DELIMS
     | WHITESPACE
@@ -181,6 +178,10 @@ class Lexer:
         if ch in {"'", '"'}:
             tokens.append(self._string_token(ch, start_line, start_col))
             return
+        if ch == "-" and self._peek().isdigit():
+            # Negative number literal
+            tokens.append(self._number_token(start_line, start_col, allow_negative=True))
+            return
         if ch.isdigit():
             tokens.append(self._number_token(start_line, start_col))
             return
@@ -244,7 +245,7 @@ class Lexer:
                 )
             # Validate delimiter for regular identifiers too
             nxt = self._peek()
-            allowed = expanded_identifier_follows.get("iden_del", IDENT_FOLLOW_CHARS)
+            allowed = expanded_identifier_follows.get("identifier", IDENT_FOLLOW_CHARS)
             if nxt not in allowed:
                 raise LexerError(
                     f"Invalid delimiter after identifier `{lexeme}` at {line}:{col}\n\nExpected: {self._format_expected(allowed)}",
@@ -268,7 +269,11 @@ class Lexer:
                          cpp_equivalent=cpp_equiv)
         return Token("IDENTIFIER", lexeme, line=line, column=col)
 
-    def _number_token(self, line: int, col: int) -> Token:
+    def _number_token(self, line: int, col: int, allow_negative: bool = False) -> Token:
+        # Handle optional minus sign for negative literals
+        if allow_negative and self._peek() == "-":
+            self._advance()
+        
         while self._peek().isdigit():
             self._advance()
         token_kind = "INT_LITERAL"
@@ -286,8 +291,8 @@ class Lexer:
                 self._partial_tokens,
             )
         if token_kind == "INT_LITERAL":
-            # Enforce dear literal rules: max 10 digits (ignoring leading zeros) and max value 9999999999.
-            digits_only = lexeme.lstrip("0") or "0"
+            # Enforce dear literal rules: max 10 digits (ignoring leading zeros and minus sign) and max value ±9999999999.
+            digits_only = lexeme.lstrip("-0") or "0"
             if len(digits_only) > 10:
                 raise LexerError(
                     f"Integer literal `{lexeme}` exceeds maximum length of 10 digits at {line}:{col}",
@@ -296,7 +301,7 @@ class Lexer:
             value = int(digits_only)
             if value > 9999999999:
                 raise LexerError(
-                    f"Integer literal `{lexeme}` exceeds maximum value 9999999999 at {line}:{col}",
+                    f"Integer literal `{lexeme}` exceeds maximum value ±9999999999 at {line}:{col}",
                     self._partial_tokens,
                 )
             return Token(token_kind, lexeme, literal=lexeme, line=line, column=col)
@@ -326,10 +331,13 @@ class Lexer:
             )
         if numeric_val > Decimal("9999999999.999999"):
             raise LexerError(
-                f"Float literal `{lexeme}` exceeds maximum value 9999999999.999999 at {line}:{col}",
+                f"Float literal `{lexeme}` exceeds maximum value ±9999999999.999999 at {line}:{col}",
                 self._partial_tokens,
             )
         literal_clean = f"{norm_int}.{truncated_frac}"
+        # Preserve the minus sign if present
+        if lexeme.startswith("-"):
+            literal_clean = "-" + literal_clean
         return Token(token_kind, lexeme, literal=literal_clean, line=line, column=col)
 
     def _string_token(self, quote: str, line: int, col: int) -> Token:
@@ -437,30 +445,62 @@ class Lexer:
 
     def _format_expected(self, allowed: set[str]) -> str:
         parts: List[str] = []
-        if ALNUM.issubset(allowed):
-            parts.append("alphanum")
-        elif ALPHA.issubset(allowed):
-            parts.append("alphabet")
-        elif DIGIT.issubset(allowed):
-            parts.append("digit")
-        if " " in allowed or "\t" in allowed:
-            parts.append("space_del")
+        seen: set[str] = set()
+
+        def add(label: str, ch: str) -> None:
+            if ch in allowed and label not in seen:
+                parts.append(label)
+                seen.add(label)
+
+        # Whitespace and EOF
+        add("space", " ")
+        add("tab", "\t")
+        add("newline", "\n")
+        add("EOF", "\0")
+
+        # Single-character delimiters
         for ch in ["(", ")", "[", "]", "{", "}", ";", ",", ":"]:
-            if ch in allowed:
-                parts.append(repr(ch))
+            add(ch, ch)
         for ch in ["+", "-", "*", "/", "%", "=", "!", ">", "<", "&", "|", "."]:
-            if ch in allowed:
-                parts.append(repr(ch))
+            add(ch, ch)
+        
+        # Double quote (special handling for clarity)
+        if '"' in allowed and '"' not in seen:
+            parts.append('"')
+            seen.add('"')
+        
+
+
+        # Any remaining multi-character tokens (e.g., &&, ||) not yet listed
+        for item in sorted(allowed):
+            # Skip if already covered above
+            if item in seen or item == '"' or item == "'":  # Skip already-handled items and quotes
+                continue
+            # Determine what label to use for this item
+            if item == "\0":
+                label = "EOF"
+            elif item == "\t":
+                label = "tab"
+            elif item == "\n":
+                label = "newline"
+            elif item == " ":
+                label = "space"
+            else:
+                label = item
+            if label not in seen:
+                parts.append(label if len(item) > 1 else item)
+                seen.add(label)
+
         if not parts:
-            parts.append(", ".join(sorted(repr(a) for a in allowed)))
+            parts.append(", ".join(sorted(a for a in allowed)))
         return "- " + "- ".join(parts)
 
     def _validate_symbol_follow(self, lexeme: str, line: int, col: int) -> None:
         # Get allowed delimiters for this symbol, or use default (whitespace)
         allowed = expanded_reserved_symbol_follows.get(lexeme)
         if not allowed:
-            # Default: any symbol without specific rules must be followed by whitespace or EOF
-            allowed = WHITESPACE | {"\n", "\0"}
+            # Default: any symbol without specific rules must be followed by whitespace
+            allowed = WHITESPACE
         
         # If immediate next char is whitespace and whitespace is allowed, accept.
         ws_chars = {" ", "\t", "\r", "\n"} | WHITESPACE

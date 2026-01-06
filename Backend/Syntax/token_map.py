@@ -126,9 +126,9 @@ reserved_symbol_follows = {
     # Other
     "(": {"symbol_del", "!", ")"},
     ")": {"space_del", "{", "arith_op", "&", "|", ";"},
-    "[": {"log_del"},
+    "[": {"log_del", "]"},
     "]": {"space_del", "=", "<", ">" , ";"},
-    "{": {"space_del"},
+    "{": {"space_del", "}"},
     "}": {"space_del", "alphabet" "eof" , ";"},   
     ";": {"space_del", "eof"},
     ":": {"space_del"},

@@ -128,7 +128,7 @@ reserved_symbol_follows = {
     ")": {"space_del", "{", "arith_op", "&", "|", ";"},
     "[": {"log_del", "]"},
     "]": {"space_del", "=", "<", ">" , ";"},
-    "{": {"space_del", "}"},
+    "{": {"space_del", "}", '"', "alphanum" },
     "}": {"space_del", "alphabet" "eof" , ";"},   
     ";": {"space_del", "eof"},
     ":": {"space_del"},

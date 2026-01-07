@@ -25,7 +25,7 @@ export type ValidationResult = {
 };
 
 export type ErrorItem = {
-  type: "lexical" | "semantic";
+  type: "lexical" | "semantic" | "backend";
   message: string;
   line?: number;
   column?: number;
@@ -37,9 +37,10 @@ type Props = {
   validation?: ValidationResult | null;
   lexError?: string | null;
   lexErrors?: string[];
+  backendError?: string | null;
 };
 
-export default function Terminal({ lexError = null, lexErrors = [] }: Props) {
+export default function Terminal({ lexError = null, lexErrors = [], backendError = null }: Props) {
   // Parse lexical errors into structured format
   const errors: ErrorItem[] = [];
 
@@ -90,9 +91,17 @@ export default function Terminal({ lexError = null, lexErrors = [] }: Props) {
     });
   }
 
+  if (backendError) {
+    errors.push({
+      type: "backend",
+      message: backendError,
+    });
+  }
+
   const lexicalCount = errors.filter(e => e.type === "lexical").length;
   const semanticCount = errors.filter(e => e.type === "semantic").length;
-  const hasErrors = lexicalCount > 0 || semanticCount > 0;
+  const backendCount = errors.filter(e => e.type === "backend").length;
+  const hasErrors = lexicalCount > 0 || semanticCount > 0 || backendCount > 0;
 
   return (
     <div className="terminal-panel">
@@ -102,6 +111,7 @@ export default function Terminal({ lexError = null, lexErrors = [] }: Props) {
           <div className="error-summary">
             {lexicalCount > 0 && <span className="error-count">Lexical: {lexicalCount}</span>}
             {semanticCount > 0 && <span className="error-count">Semantic: {semanticCount}</span>}
+            {backendCount > 0 && <span className="error-count">Backend: {backendCount}</span>}
           </div>
         )}
         {errors.length === 0 && (

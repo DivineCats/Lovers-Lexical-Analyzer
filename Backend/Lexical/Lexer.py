@@ -224,6 +224,12 @@ class Lexer:
                 self._partial_tokens,
             )
         nxt = self._peek()
+        # Special-case single ampersand so users get a clear hint to use '&&'.
+        if nxt == "&" and self._peek_next() != "&":
+            raise LexerError(
+                f"Single '&' is not allowed after identifier `{lexeme}` at {line}:{col}. Use '&&' instead.",
+                self._partial_tokens,
+            )
         if nxt in BAD_SYMBOLS_AFTER_IDENTIFIER:
             if nxt == "!" and self._peek_next() == "=":
                 pass  # allow '!='
@@ -252,6 +258,11 @@ class Lexer:
                 )
         if entry:
             nxt = self._peek()
+            if nxt == "&" and self._peek_next() != "&":
+                raise LexerError(
+                    f"Single '&' is not allowed after `{lexeme}` at {line}:{col}. Use '&&' instead.",
+                    self._partial_tokens,
+                )
             allowed = expanded_reserved_word_follows.get(lexeme, IDENT_FOLLOW_CHARS)
             if nxt not in allowed:
                 raise LexerError(

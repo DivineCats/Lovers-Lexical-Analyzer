@@ -54,6 +54,7 @@ export default function App() {
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [lexError, setLexError] = useState<string | null>(null);
   const [lexErrors, setLexErrors] = useState<string[]>([]);
+  const [backendError, setBackendError] = useState<string | null>(null);
 
   const lexSource = useCallback(async (text: string): Promise<LexResult> => {
     const body = text ?? "";
@@ -63,6 +64,7 @@ export default function App() {
       setError(null);
       setLexError(null);
       setLexErrors([]);
+      setBackendError(null);
       setLastRunAt(null);
       return { rows: [], hasLexError: false };
     }
@@ -71,6 +73,7 @@ export default function App() {
     setError(null);
     setLexError(null);
     setLexErrors([]);
+    setBackendError(null);
 
     try {
       const resp = await fetch(LEX_ENDPOINT, {
@@ -85,7 +88,12 @@ export default function App() {
           (payload?.error as string | undefined) ??
           (payload?.message as string | undefined) ??
           raw?.trim();
-        throw new Error(detail || `Request failed (${resp.status})`);
+        const backendMsg = detail || `Request failed (${resp.status})`;
+        setBackendError(backendMsg);
+        setError(backendMsg);
+        setStatus("error");
+        setRows([]);
+        return { rows: [], hasLexError: false };
       }
 
       const nextRows = Array.isArray(payload?.rows)
@@ -112,11 +120,12 @@ export default function App() {
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to lex source.";
+      setBackendError(message);
       setError(message);
-      setLexError(message);
-      setLexErrors([message]);
+      setLexError(null);
+      setLexErrors([]);
       setStatus("error");
-      return { rows: [], hasLexError: true };
+      return { rows: [], hasLexError: false };
     }
   }, []);
 
@@ -233,6 +242,7 @@ export default function App() {
             validation={validation}
             lexError={lexError}
             lexErrors={lexErrors}
+            backendError={backendError}
           />
         </section>
       </main>

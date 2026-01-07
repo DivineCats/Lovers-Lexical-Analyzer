@@ -58,14 +58,14 @@ reserved_word_follows = {
     "bareminimum": {":"},
     "while": {" ", "\t", "\n", "("},
     "pursue": {" ", "\t", "\n", "("},
-    "moveon": {";"},
-    "breakup": {";"},
+    "moveon": {" ", "\t", "\n",";"},
+    "breakup": {" ", "\t", "\n",";"},
     # Others
     "love": {" ", "\t", "\n", "("},
-    "periodt": {";"},
+    "periodt": {" ", "\t", "\n",";"},
     "const": {" ", "\t", "\n"},
-    "greenflag": {";", ":"},
-    "redflag": {";", ":"},
+    "greenflag": {" ", "\t", "\n",";", ":"},
+    "redflag": {" ", "\t", "\n",";", ":"},
     "boundaries": {" ", "\t", "\n"},
     "comeback": {";", "(", '"', "alphanum", "-", "!", " ", "\t", "\n"},
     "avoidant": {" ", "\t", "\n", "alphabet"},
@@ -112,7 +112,7 @@ reserved_symbol_follows = {
     "}": {" ", "\t", "\n", "alphabet", "\0" , ";"},
     ";": {" ", "\t", "\n", "\0"},
     ":": {" ", "\t", "\n"},
-    "::":{"alphabet"},
+    "::":{" ", "\t", "\n","alphabet"},
     '"': {" ", "\t", "\n", ";", ")", "<"},
     "<<": {" ", "\t", "\n", "alphanum", '"'},
     ">>": {" ", "\t", "\n", "alphabet"},
@@ -131,7 +131,7 @@ identifier_del = {
     "identifier": {
         " ", "\t", "\n",
         ";", ",", ")", "}", "(", "{", "[", "]", ":",
-        "=", "+", "-", "*", "/", "%", "!", ">", "<", "&&", "|",
+        "=", "+", "-", "*", "/", "%", "!", ">", "<", "&", "|",
 
     }
 }
@@ -139,7 +139,7 @@ identifier_del = {
 int_lit = {
     "int_lit": {
         ":", ",", ";",
-        "+", "-", "*", "/", "%", "<", ">", "=", "!", "&&", "|",
+        "+", "-", "*", "/", "%", "<", ">", "=", "!", "&", "|",
         ")", "}", "]", "(",
         " ", "\t", "\n",
         '"',
@@ -148,12 +148,13 @@ int_lit = {
 
 string_lit = {
     "string_lit": {
-    " ", "\t", "\n", 
-    ";", ",", ")", "}", "]",  # Separators
-    "+",                     # Concatenation 
-    "==", "!=",              # Comparison 
-    "<<"                     # Output chaining 
-},
+        " ", "\t", "\n",
+        ";", ",", ")", "}", "]",  # Separators
+        "+", "-", "*", "/", "%",    # Arithmetic / concat
+        "==", "!=", "<", ">", "<=", ">=",  # Comparison
+        "=", "&&", "||",                # Assignment / logical chaining
+        "<<",                              # Output chaining
+    },
 }
 
 

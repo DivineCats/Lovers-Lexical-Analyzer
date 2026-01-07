@@ -44,6 +44,29 @@ export default function Terminal({ lexError = null, lexErrors = [], backendError
   // Parse lexical errors into structured format
   const errors: ErrorItem[] = [];
 
+  // Reserved keywords (mirror of backend set) for suggestions
+  const KEYWORDS = [
+    "give","express","overshare","dear","dearest","rant","status",
+    "forever","more","forevermore","choose","phase","bareminimum",
+    "for","while","pursue","breakup","moveon","love","periodt",
+    "const","redflag","greenflag","boundaries","comeback","avoidant"
+  ];
+
+  const renderKeywordSuggestions = (message: string) => {
+    // Try to extract an offending lexeme from backticks in the first line
+    const m = message.match(/`([A-Za-z][A-Za-z0-9_]*)`/);
+    const word = m ? m[1] : undefined;
+    if (!word) return null;
+    const lower = word.toLowerCase();
+    const suggestions = KEYWORDS.filter(k => k !== lower && k.startsWith(lower)).slice(0, 6);
+    if (suggestions.length === 0) return null;
+    return (
+      <div className="error-details">
+        <div className="error-detail-line">Possible keywords: {suggestions.join(", ")}</div>
+      </div>
+    );
+  };
+
   const extractExpectedTokens = (lines: string[]): string[] => {
     for (const line of lines) {
       const match = line.match(/expected(?: one of)?\s*[:\-]\s*(.*)/i);
@@ -139,6 +162,7 @@ export default function Terminal({ lexError = null, lexErrors = [], backendError
                 </div>
               </div>
             )}
+            {renderKeywordSuggestions(error.message)}
           </div>
         ))}
       </div>

@@ -168,9 +168,6 @@ class Lexer:
         if ch == "\n":
             tokens.append(Token("NEWLINE", "\\n", line=start_line, column=start_col))
             return
-        if ch == "/" and self._match("/"):
-            self._skip_line_comment()
-            return
         if ch == "/" and self._match("*"):
             self._skip_block_comment()
             return
@@ -456,6 +453,7 @@ class Lexer:
     def _format_expected(self, allowed: set[str]) -> str:
         parts: List[str] = []
         seen: set[str] = set()
+        covered_chars: set[str] = set()
 
         def add(label: str, ch: str) -> None:
             if ch in allowed and label not in seen:
@@ -484,11 +482,27 @@ class Lexer:
             parts.append("'")
             seen.add("'")
 
+        # If full ranges exist in allowed, show compact labels and mark covered
+        from string import ascii_uppercase as _UC, ascii_lowercase as _LC, digits as _DG
+        uc = set(_UC)
+        lc = set(_LC)
+        dg = set(_DG)
+
+        if uc.issubset(allowed):
+            parts.append("A:Z")
+            covered_chars |= uc
+        if lc.issubset(allowed):
+            parts.append("a:z")
+            covered_chars |= lc
+        if dg.issubset(allowed):
+            parts.append("0:9")
+            covered_chars |= dg
+
         # Collect remaining characters and group into ranges
         remaining = []
         for item in sorted(allowed):
             # Skip if already covered above
-            if item in seen or len(item) > 1:  # Skip multi-char tokens for now
+            if item in seen or len(item) > 1 or item in covered_chars:  # Skip multi-char tokens and covered ranges
                 continue
             remaining.append(item)
         

@@ -93,7 +93,7 @@ NUMBER_DELIMS = expanded_int_lit.get("int_lit", set())
 STRING_DELIMS = expanded_string_lit.get("string_lit", set())
 ALPHA = Literals["alphabet"]
 DIGIT = Literals["digit"]
-ALNUM = Literals["alphanumeric"]
+ALNUM = Literals["alphanum"]
 WHITESPACE = {" ", "\t", "\n"}
 DISALLOWED_IDENTIFIERS: set[str] = set()
 # Disallow only symbols that should never appear immediately after an identifier.
@@ -237,10 +237,13 @@ class Lexer:
                     f"Invalid delimiter after identifier `{lexeme}` at {line}:{col}\n\nExpected: {self._format_expected(IDENT_FOLLOW_CHARS)}",
                     self._partial_tokens,
                 )
-        entry = RESERVED_WORDS.get(lexeme)
-        if entry is None:
+        
+        # Character-by-character keyword matching
+        keyword_result = self._match_keyword(lexeme)
+        if keyword_result is None:
             lowered = lexeme.lower()
-            if lowered in RESERVED_WORDS:
+            keyword_result = self._match_keyword(lowered)
+            if keyword_result is not None:
                 raise LexerError(
                     f"Reserved word `{lowered}` must be written in lowercase at {line}:{col}",
                     self._partial_tokens,
@@ -253,7 +256,7 @@ class Lexer:
                     f"Invalid delimiter after identifier `{lexeme}` at {line}:{col}\n\nExpected: {self._format_expected(allowed)}",
                     self._partial_tokens,
                 )
-        if entry:
+        if keyword_result:
             nxt = self._peek()
             if nxt == "&" and self._peek_next() != "&":
                 raise LexerError(
@@ -266,7 +269,7 @@ class Lexer:
                     f"Reserved word `{lexeme}` must be followed by a delimiter at {line}:{col}\n\nExpected: {self._format_expected(allowed)}",
                     self._partial_tokens,
                 )
-            kind, cpp_equiv = entry
+            kind, cpp_equiv = keyword_result
             literal = cpp_equiv if kind.startswith("BOOL_LITERAL") else None
             return Token(kind=kind,
                          lexeme=lexeme,
@@ -275,6 +278,105 @@ class Lexer:
                          column=col,
                          cpp_equivalent=cpp_equiv)
         return Token("IDENTIFIER", lexeme, line=line, column=col)
+    
+    def _match_keyword(self, value: str) -> tuple[str, str] | None:
+        """Character-by-character keyword matching for performance."""
+        length = len(value)
+        if length == 0:
+            return None
+        
+        first = value[0]
+        
+        # 'b' keywords
+        if first == 'b':
+            if length == 7 and value[1] == 'r' and value[2] == 'e' and value[3] == 'a' and value[4] == 'k' and value[5] == 'u' and value[6] == 'p':
+                return ("KEYWORD_BREAK", "breakup")
+            elif length == 10 and value[1] == 'o' and value[2] == 'u' and value[3] == 'n' and value[4] == 'd' and value[5] == 'a' and value[6] == 'r' and value[7] == 'i' and value[8] == 'e' and value[9] == 's':
+                return ("KEYWORD_NAMESPACE", "boundaries")
+            elif length == 12 and value[1] == 'a' and value[2] == 'r' and value[3] == 'e' and value[4] == 'm' and value[5] == 'i' and value[6] == 'n' and value[7] == 'i' and value[8] == 'm' and value[9] == 'u' and value[10] == 'm':
+                return ("KEYWORD_DEFAULT", "bareminimum")
+        
+        # 'c' keywords
+        elif first == 'c':
+            if length == 5 and value[1] == 'o' and value[2] == 'n' and value[3] == 's' and value[4] == 't':
+                return ("KEYWORD_CONST", "const")
+            elif length == 6 and value[1] == 'h' and value[2] == 'o' and value[3] == 'o' and value[4] == 's' and value[5] == 'e':
+                return ("KEYWORD_SWITCH", "choose")
+            elif length == 8 and value[1] == 'o' and value[2] == 'm' and value[3] == 'e' and value[4] == 'b' and value[5] == 'a' and value[6] == 'c' and value[7] == 'k':
+                return ("KEYWORD_RETURN", "comeback")
+        
+        # 'd' keywords
+        elif first == 'd':
+            if length == 4 and value[1] == 'e' and value[2] == 'a' and value[3] == 'r':
+                return ("KEYWORD_TYPE_INT", "dear")
+            elif length == 7 and value[1] == 'e' and value[2] == 'a' and value[3] == 'r' and value[4] == 'e' and value[5] == 's' and value[6] == 't':
+                return ("KEYWORD_TYPE_FLOAT", "dearest")
+        
+        # 'e' keywords
+        elif first == 'e':
+            if length == 7 and value[1] == 'x' and value[2] == 'p' and value[3] == 'r' and value[4] == 'e' and value[5] == 's' and value[6] == 's':
+                return ("KEYWORD_IO_EXPRESS", "express")
+        
+        # 'f' keywords
+        elif first == 'f':
+            if length == 3 and value[1] == 'o' and value[2] == 'r':
+                return ("KEYWORD_FOR", "for")
+            elif length == 7 and value[1] == 'o' and value[2] == 'r' and value[3] == 'e' and value[4] == 'v' and value[5] == 'e' and value[6] == 'r':
+                return ("KEYWORD_IF", "forever")
+            elif length == 11 and value[1] == 'o' and value[2] == 'r' and value[3] == 'e' and value[4] == 'v' and value[5] == 'e' and value[6] == 'r' and value[7] == 'm' and value[8] == 'o' and value[9] == 'r' and value[10] == 'e':
+                return ("KEYWORD_ELSEIF", "forevermore")
+        
+        # 'g' keywords
+        elif first == 'g':
+            if length == 4 and value[1] == 'i' and value[2] == 'v' and value[3] == 'e':
+                return ("KEYWORD_IO_GIVE", "give")
+            elif length == 9 and value[1] == 'r' and value[2] == 'e' and value[3] == 'e' and value[4] == 'n' and value[5] == 'f' and value[6] == 'l' and value[7] == 'a' and value[8] == 'g':
+                return ("BOOL_LITERAL_TRUE", "greenflag")
+        
+        # 'l' keywords
+        elif first == 'l':
+            if length == 4 and value[1] == 'o' and value[2] == 'v' and value[3] == 'e':
+                return ("KEYWORD_MAIN", "love")
+        
+        # 'm' keywords
+        elif first == 'm':
+            if length == 4 and value[1] == 'o' and value[2] == 'r' and value[3] == 'e':
+                return ("KEYWORD_ELSE", "more")
+            elif length == 6 and value[1] == 'o' and value[2] == 'v' and value[3] == 'e' and value[4] == 'o' and value[5] == 'n':
+                return ("KEYWORD_CONTINUE", "moveon")
+        
+        # 'o' keywords
+        elif first == 'o':
+            if length == 10 and value[1] == 'v' and value[2] == 'e' and value[3] == 'r' and value[4] == 's' and value[5] == 'h' and value[6] == 'a' and value[7] == 'r' and value[8] == 'e':
+                return ("KEYWORD_IO_OVERSHARE", "overshare")
+        
+        # 'p' keywords
+        elif first == 'p':
+            if length == 5 and value[1] == 'h' and value[2] == 'a' and value[3] == 's' and value[4] == 'e':
+                return ("KEYWORD_CASE", "phase")
+            elif length == 7 and value[1] == 'e' and value[2] == 'r' and value[3] == 'i' and value[4] == 'o' and value[5] == 'd' and value[6] == 't':
+                return ("KEYWORD_ENDL", "periodt")
+            elif length == 6 and value[1] == 'u' and value[2] == 'r' and value[3] == 's' and value[4] == 'u' and value[5] == 'e':
+                return ("KEYWORD_DO_WHILE", "pursue")
+        
+        # 'r' keywords
+        elif first == 'r':
+            if length == 4 and value[1] == 'a' and value[2] == 'n' and value[3] == 't':
+                return ("KEYWORD_TYPE_STRING", "rant")
+            elif length == 7 and value[1] == 'e' and value[2] == 'd' and value[3] == 'f' and value[4] == 'l' and value[5] == 'a' and value[6] == 'g':
+                return ("BOOL_LITERAL_FALSE", "redflag")
+        
+        # 's' keywords
+        elif first == 's':
+            if length == 6 and value[1] == 't' and value[2] == 'a' and value[3] == 't' and value[4] == 'u' and value[5] == 's':
+                return ("KEYWORD_TYPE_BOOL", "status")
+        
+        # 'w' keywords
+        elif first == 'w':
+            if length == 5 and value[1] == 'h' and value[2] == 'i' and value[3] == 'l' and value[4] == 'e':
+                return ("KEYWORD_WHILE", "while")
+        
+        return None
 
     def _number_token(self, line: int, col: int, allow_negative: bool = False) -> Token:
         # Handle optional minus sign for negative literals

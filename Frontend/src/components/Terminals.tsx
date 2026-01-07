@@ -52,6 +52,12 @@ export default function Terminal({ lexError = null, lexErrors = [], backendError
     "const","redflag","greenflag","boundaries","comeback","avoidant"
   ];
 
+  // Operator/symbol suggestions based on prefix
+  const SYMBOLS = [
+    "+", "++", "+=", "-", "--", "-=", "*", "*=", "/", "/=", "%", "%=",
+    "==", "!=", ">", ">=", "<", "<=", "&&", "||", "::", "<<", ">>"
+  ];
+
   const renderKeywordSuggestions = (message: string) => {
     // Try to extract an offending lexeme from backticks in the first line
     const m = message.match(/`([A-Za-z][A-Za-z0-9_]*)`/);
@@ -67,14 +73,41 @@ export default function Terminal({ lexError = null, lexErrors = [], backendError
     );
   };
 
+  const renderSymbolSuggestions = (message: string) => {
+    // Extract offending symbol inside backticks (operators often are non-letters)
+    const m = message.match(/`([^`]+)`/);
+    const sym = m ? m[1] : undefined;
+    if (!sym) return null;
+    const suggestions = SYMBOLS.filter(s => s !== sym && s.startsWith(sym)).slice(0, 6);
+    if (suggestions.length === 0) return null;
+    return (
+      <div className="error-details">
+        <div className="error-detail-line">Possible symbols: {suggestions.join(", ")}</div>
+      </div>
+    );
+  };
+
   const extractExpectedTokens = (lines: string[]): string[] => {
     for (const line of lines) {
       const match = line.match(/expected(?: one of)?\s*[:\-]\s*(.*)/i);
       if (match && match[1]) {
-        return match[1]
-          .split(/[-,\s]+/)
-          .map(t => t.trim().replace(/^['`]+|['`]+$/g, ""))
-          .filter(t => t.length > 0);
+        const payload = match[1].trim();
+        const clean = (t: string) => t.trim().replace(/^["'`]+|["'`]+$/g, "");
+        const keep = (t: string) => t.length > 0 && t !== "-";
+
+        // Prefer backend dash-separated format: "- token - token - , - :"
+        const dashSplit = payload
+          .split(/\s*-\s+/)
+          .map(clean)
+          .filter(keep);
+        if (dashSplit.length > 0) {
+          return dashSplit;
+        }
+        // Fallback: split on whitespace only (preserve literal comma tokens)
+        return payload
+          .split(/\s+/)
+          .map(clean)
+          .filter(keep);
       }
     }
     return [];
@@ -163,6 +196,7 @@ export default function Terminal({ lexError = null, lexErrors = [], backendError
               </div>
             )}
             {renderKeywordSuggestions(error.message)}
+            {renderSymbolSuggestions(error.message)}
           </div>
         ))}
       </div>

@@ -67,7 +67,7 @@ export default function TokenTable({
             </div>
           ))}
         {!hasRows && (
-          <div className="tokens__empty">Press Run to see tokens.</div>
+          <div className="tokens__empty">No Token.</div>
         )}
       </div>
     </div>

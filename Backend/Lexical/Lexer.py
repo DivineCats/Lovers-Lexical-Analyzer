@@ -394,6 +394,12 @@ class Lexer:
         lexeme = self.source[self.start:self.pos]
         nxt = self._peek()
         if nxt not in NUMBER_FOLLOW_CHARS:
+            # Special case: if next char is a letter, user likely tried to write an identifier starting with a digit
+            if nxt in ALPHA:
+                raise LexerError(
+                    f"Identifiers cannot start with a digit. `{lexeme}{nxt}...` should start with an alphabet character at {line}:{col}",
+                    self._partial_tokens,
+                )
             human_kind = "float" if token_kind == "FLOAT_LITERAL" else "integer"
             raise LexerError(
                 f"Invalid delimiter after {human_kind} {lexeme}: {nxt} at {line}:{self.column}\nExpected: {self._format_expected(NUMBER_FOLLOW_CHARS)}",

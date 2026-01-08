@@ -81,8 +81,8 @@ SINGLE_CHAR_TOKENS = {
     "=": "ASSIGN",
     ">": "GT",
     "<": "LT",
-    "!": "BANG",
-    "|": "OR",
+    "!": "NOT",
+    "|": "BIT OR",
 }
 
 
@@ -392,6 +392,67 @@ class Lexer:
             while self._peek().isdigit():
                 self._advance()
         lexeme = self.source[self.start:self.pos]
+        
+        # Check length FIRST before delimiter validation
+        if token_kind == "INT_LITERAL":
+            # Enforce dear literal rules: max 10 digits (including leading zeros) and max value ±9999999999.
+            raw_digits = lexeme.lstrip("-")
+            if len(raw_digits) > 10:
+                raise LexerError(
+                    f"Integer literal `{lexeme}` exceeds maximum length of 10 digits at {line}:{col}",
+                    self._partial_tokens,
+                )
+            digits_only = lexeme.lstrip("-0") or "0"
+            value = int(digits_only)
+            if value > 9999999999:
+                raise LexerError(
+                    f"Integer literal `{lexeme}` exceeds maximum value ±9999999999 at {line}:{col}",
+                    self._partial_tokens,
+                )
+        
+        # FLOAT_LITERAL: dearest rules - validate BEFORE delimiter check
+        if token_kind == "FLOAT_LITERAL":
+            int_part, _, frac_part = lexeme.partition(".")
+            
+            # Check raw integer part length first (including leading zeros)
+            raw_int_part = int_part.lstrip("-")
+            if len(raw_int_part) > 10:
+                raise LexerError(
+                    f"Float literal `{lexeme}` exceeds 10 digits before decimal at {line}:{col}",
+                    self._partial_tokens,
+                )
+            
+            norm_int = int_part.lstrip("0") or "0"
+            norm_frac_raw = frac_part.rstrip("0")
+            
+            # Check fractional part length
+            if len(frac_part) > 6:
+                raise LexerError(
+                    f"Float literal `{lexeme}` exceeds 6 digits after decimal at {line}:{col}",
+                    self._partial_tokens,
+                )
+            
+            truncated_frac = norm_frac_raw[:6] if norm_frac_raw else "0"
+
+            if len(norm_int) + len(truncated_frac) > 16:
+                raise LexerError(
+                    f"Float literal `{lexeme}` exceeds 16 total digits at {line}:{col}",
+                    self._partial_tokens,
+                )
+            try:
+                numeric_val = Decimal(f"{norm_int}.{truncated_frac}")
+            except (InvalidOperation, ValueError):
+                raise LexerError(
+                    f"Invalid float literal `{lexeme}` at {line}:{col}",
+                    self._partial_tokens,
+                )
+            if numeric_val > Decimal("9999999999.999999"):
+                raise LexerError(
+                    f"Float literal `{lexeme}` exceeds maximum value ±9999999999.999999 at {line}:{col}",
+                    self._partial_tokens,
+                )
+        
+        # Now validate delimiter
         nxt = self._peek()
         if nxt not in NUMBER_FOLLOW_CHARS:
             # Special case: if next char is a letter, user likely tried to write an identifier starting with a digit
@@ -405,50 +466,15 @@ class Lexer:
                 f"Invalid delimiter after {human_kind} {lexeme}: {nxt} at {line}:{self.column}\nExpected: {self._format_expected(NUMBER_FOLLOW_CHARS)}",
                 self._partial_tokens,
             )
+        
         if token_kind == "INT_LITERAL":
-            # Enforce dear literal rules: max 10 digits (ignoring leading zeros and minus sign) and max value ±9999999999.
-            digits_only = lexeme.lstrip("-0") or "0"
-            if len(digits_only) > 10:
-                raise LexerError(
-                    f"Integer literal `{lexeme}` exceeds maximum length of 10 digits at {line}:{col}",
-                    self._partial_tokens,
-                )
-            value = int(digits_only)
-            if value > 9999999999:
-                raise LexerError(
-                    f"Integer literal `{lexeme}` exceeds maximum value ±9999999999 at {line}:{col}",
-                    self._partial_tokens,
-                )
             return Token(token_kind, lexeme, literal=lexeme, line=line, column=col)
 
-        # FLOAT_LITERAL: dearest rules
+        # Return float token
         int_part, _, frac_part = lexeme.partition(".")
         norm_int = int_part.lstrip("0") or "0"
         norm_frac_raw = frac_part.rstrip("0")
         truncated_frac = norm_frac_raw[:6] if norm_frac_raw else "0"
-
-        if len(norm_int) > 10:
-            raise LexerError(
-                f"Float literal `{lexeme}` exceeds 10 digits before decimal at {line}:{col}",
-                self._partial_tokens,
-            )
-        if len(norm_int) + len(truncated_frac) > 16:
-            raise LexerError(
-                f"Float literal `{lexeme}` exceeds 16 total digits at {line}:{col}",
-                self._partial_tokens,
-            )
-        try:
-            numeric_val = Decimal(f"{norm_int}.{truncated_frac}")
-        except (InvalidOperation, ValueError):
-            raise LexerError(
-                f"Invalid float literal `{lexeme}` at {line}:{col}",
-                self._partial_tokens,
-            )
-        if numeric_val > Decimal("9999999999.999999"):
-            raise LexerError(
-                f"Float literal `{lexeme}` exceeds maximum value ±9999999999.999999 at {line}:{col}",
-                self._partial_tokens,
-            )
         literal_clean = f"{norm_int}.{truncated_frac}"
         # Preserve the minus sign if present
         if lexeme.startswith("-"):
@@ -485,10 +511,36 @@ class Lexer:
                 escaped = True
                 continue
             if c == quote:
+                # Support doubled quotes inside strings.
+                if self._peek() == quote:
+                    lookahead = self._peek_next()
+                    # If another character follows the doubled quotes and it is NOT a valid delimiter,
+                    # treat "" as an escaped quote and keep scanning.
+                    if lookahead not in STRING_DELIMS and lookahead not in {"\n", "\0"}:
+                        self._advance()
+                        content_chars.append("\"")
+                        continue
+                    # Otherwise consume the second quote and close the string here.
+                    self._advance()
+                    lexeme = self.source[self.start:self.pos]
+                    inner = "".join(content_chars)
+                    nxt = self._peek()
+                    if nxt not in STRING_DELIMS:
+                        raise LexerError(
+                            f"Invalid delimiter after string literal: {nxt} at {line}:{self.column}\nExpected: {self._format_expected(STRING_DELIMS)}",
+                            self._partial_tokens,
+                        )
+                    return Token("STRING_LITERAL", lexeme, literal=inner, line=line, column=col)
+
+                nxt = self._peek()
+                # If the next char is NOT a valid string delimiter, treat this quote as literal
+                # so patterns like "Hello"Love"" keep scanning until a delimiter (e.g., ;)
+                if nxt not in STRING_DELIMS and nxt not in {"\n", "\0"}:
+                    content_chars.append("\"")
+                    continue
                 lexeme = self.source[self.start:self.pos]
                 inner = "".join(content_chars)
                 # Validate delimiter after closing quote
-                nxt = self._peek()
                 if nxt not in STRING_DELIMS:
                     raise LexerError(
                         f"Invalid delimiter after string literal: {nxt} at {line}:{self.column}\nExpected: {self._format_expected(STRING_DELIMS)}",

@@ -92,7 +92,7 @@ export default function Terminal({ lexError = null, lexErrors = [], backendError
       const match = line.match(/expected(?: one of)?\s*[:\-]\s*(.*)/i);
       if (match && match[1]) {
         const payload = match[1].trim();
-        const clean = (t: string) => t.trim().replace(/^["'`]+|["'`]+$/g, "");
+        const clean = (t: string) => t.trim().replace(/^[`]+|[`]+$/g, "");
         const keep = (t: string) => t.length > 0 && t !== "-";
 
         // Prefer backend dash-separated format: "- token - token - , - :"

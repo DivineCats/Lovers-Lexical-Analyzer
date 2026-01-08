@@ -163,10 +163,10 @@ class Lexer:
     # --- single token scanner ----------------------------------------------
 
     def _scan_single_token(self, ch: str, tokens: List[Token], start_line: int, start_col: int) -> None:
-        if ch in WHITESPACE:
-            return
         if ch == "\n":
             tokens.append(Token("NEWLINE", "\\n", line=start_line, column=start_col))
+            return
+        if ch in WHITESPACE:
             return
         if ch == "/" and self._match("*"):
             self._skip_block_comment()

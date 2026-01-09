@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from Backend.Lexical import Lexer, validate_program_structure
+from Backend.Lexical import Lexer, tokenize_with_errors, validate_program_structure
 from Backend.Lexical.Lexer import LexerError
 
 
@@ -22,7 +22,11 @@ def main() -> int:
 
     source = src_path.read_text(encoding="utf-8")
     try:
-        tokens = Lexer(source).scan_tokens()
+        tokens, lex_errors = tokenize_with_errors(source)
+        if lex_errors:
+            print("Lexical errors:")
+            for e in lex_errors:
+                print(" -", e)
         result = validate_program_structure(tokens)
     except LexerError as exc:  # pragma: no cover - defensive user feedback
         print(f"Lexing failed: {exc}")

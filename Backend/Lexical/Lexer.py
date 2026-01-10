@@ -189,13 +189,17 @@ class Lexer:
         # Handle continuation chunks for overlong identifiers
         if self._identifier_continuation:
             if self._is_identifier_part(ch):
-                tokens.append(self._identifier_continuation_token(start_line, start_col))
+                tok = self._identifier_continuation_token(start_line, start_col)
+                if tok is not None:
+                    tokens.append(tok)
                 return
             self._identifier_continuation = False
         # Handle continuation chunks for numbers
         if self._number_continuation:
             if ch.isdigit():
-                tokens.append(self._number_continuation_token(start_line, start_col))
+                tok = self._number_continuation_token(start_line, start_col)
+                if tok is not None:
+                    tokens.append(tok)
                 return
             self._number_continuation = False
         if ch == "-" and self._peek().isdigit():
@@ -245,14 +249,12 @@ class Lexer:
         lexeme = self.source[self.start:self.pos]
         nxt = self._peek()
         # If we hit the limit and more identifier chars follow, it's an error
-        # Don't emit token for first chunk; continue scanning from 21st char
         if len(lexeme) == MAX_IDENTIFIER_LEN and self._is_identifier_part(nxt):
             self._identifier_continuation = True
             self._add_lexical_error(
-                f"Identifier exceeds {MAX_IDENTIFIER_LEN} characters; first {MAX_IDENTIFIER_LEN} chars not tokenized at {line}:{col}"
+                f"Identifier exceeds {MAX_IDENTIFIER_LEN} characters; identifers not tokenized at {self.line}:{self.column}"
             )
             # Return None or use a sentinel to indicate no token emitted
-            # Actually we need to return something, so let's just continue the scan
             return None  # Signal to skip token emission
         nxt = self._peek()
         # Special-case single ampersand so users get a clear hint to use '&&'.
@@ -323,20 +325,24 @@ class Lexer:
         if len(lexeme) == MAX_IDENTIFIER_LEN and self._is_identifier_part(nxt):
             # Still exceeding, keep continuation mode active
             self._identifier_continuation = True
+            # Add error for this continuation chunk too
+            self._add_lexical_error(
+                f"Identifier exceeds {MAX_IDENTIFIER_LEN} characters; identifers not tokenized at {self.line}:{self.column}"
+            )
+            # Don't emit token while still continuing
+            return None
         else:
             # Hit delimiter or shorter chunk; end continuation
             self._identifier_continuation = False
-        
-        # Validate delimiter before emitting token
-        allowed = expanded_identifier_follows.get("identifier", IDENT_FOLLOW_CHARS)
-        if nxt not in allowed:
-            raise LexerError(
-                f"Invalid delimiter after identifier continuation `{lexeme}` at {line}:{col}\n\nExpected: {self._format_expected(allowed)}",
-                self._partial_tokens,
-            )
-        
-        # Always emit the token for continuation chunks if delimiter is valid
-        return Token("IDENTIFIER", lexeme, line=line, column=col)
+            # Only validate delimiter at the very end when continuation stops
+            allowed = expanded_identifier_follows.get("identifier", IDENT_FOLLOW_CHARS)
+            if nxt not in allowed:
+                raise LexerError(
+                    f"Invalid delimiter after identifier continuation `{lexeme}` at {self.line}:{self.column}\n\nExpected: {self._format_expected(allowed)}",
+                    self._partial_tokens,
+                )
+            # Only emit token if delimiter is valid
+            return Token("IDENTIFIER", lexeme, line=line, column=col)
     
     def _match_keyword(self, value: str) -> tuple[str, str] | None:
         """Character-by-character keyword matching for performance."""
@@ -438,12 +444,17 @@ class Lexer:
         return None
 
     def _number_token(self, line: int, col: int, allow_negative: bool = False) -> Token:
-        # Handle optional minus sign for negative literals
-        if allow_negative and self._peek() == "-":
+        # For negative numbers, we need to consume the first digit
+        # For positive numbers, the first digit was already consumed in _scan_single_token
+        if allow_negative:
+            # Minus was already consumed; consume first digit of the number
             self._advance()
+            int_count = 1
+        else:
+            # First digit was already consumed in _scan_single_token
+            int_count = 1
         
-        # Read up to 10 digits for integer part (first digit already consumed)
-        int_count = 1
+        # Read remaining digits up to 10 total digits for integer part
         while self._peek().isdigit():
             if int_count >= 10:
                 # Hit 10-digit limit; if more digits follow without delimiter, skip first chunk
@@ -451,7 +462,7 @@ class Lexer:
                     self._number_continuation = True
                     lexeme = self.source[self.start:self.pos]
                     self._add_lexical_error(
-                        f"Integer literal exceeds 10 digits; first 10 digits not tokenized at {line}:{col}"
+                        f"Integer literal exceeds 10 digits at {self.line}:{self.column}"
                     )
                     return None  # Signal to skip token emission
                 break
@@ -531,13 +542,19 @@ class Lexer:
             return Token(token_kind, lexeme, literal=lexeme, line=line, column=col)
 
         # Return float token
+        # Extract minus sign if present
+        is_negative = lexeme.startswith("-")
         int_part, _, frac_part = lexeme.partition(".")
+        # Remove the minus sign before normalizing
+        if is_negative:
+            int_part = int_part[1:]
         norm_int = int_part.lstrip("0") or "0"
         norm_frac_raw = frac_part.rstrip("0")
         truncated_frac = norm_frac_raw[:6] if norm_frac_raw else "0"
+        # Reconstruct with normalized parts
         literal_clean = f"{norm_int}.{truncated_frac}"
-        # Preserve the minus sign if present
-        if lexeme.startswith("-"):
+        # Add minus sign back if it was present
+        if is_negative:
             literal_clean = "-" + literal_clean
         return Token(token_kind, lexeme, literal=literal_clean, line=line, column=col)
 
@@ -553,24 +570,28 @@ class Lexer:
         if count == 10 and nxt.isdigit():
             # Still exceeding, keep continuation mode active
             self._number_continuation = True
+            # Add error for this continuation chunk too
+            self._add_lexical_error(
+                f"Integer literal exceeds 10 digits at {self.line}:{self.column}"
+            )
+            # Don't emit token while still continuing
+            return None
         else:
             # Hit delimiter or shorter chunk; end continuation
             self._number_continuation = False
-        
-        # Validate delimiter before emitting token
-        if nxt not in NUMBER_FOLLOW_CHARS:
-            if nxt in ALPHA:
+            # Only validate delimiter at the very end when continuation stops
+            if nxt not in NUMBER_FOLLOW_CHARS:
+                if nxt in ALPHA:
+                    raise LexerError(
+                        f"Identifiers cannot start with a digit. `{lexeme}{nxt}...` should start with an alphabet character at {self.line}:{self.column}",
+                        self._partial_tokens,
+                    )
                 raise LexerError(
-                    f"Identifiers cannot start with a digit. `{lexeme}{nxt}...` should start with an alphabet character at {line}:{col}",
+                    f"Invalid delimiter after integer `{lexeme}`: at {self.line}:{self.column}\n\nExpected: {self._format_expected(NUMBER_FOLLOW_CHARS)}",
                     self._partial_tokens,
                 )
-            raise LexerError(
-                f"Integer literal exceeds 10 digits at {line}:{col}",
-                self._partial_tokens,
-            )
-        
-        # Always emit the token for continuation chunks if delimiter is valid
-        return Token("INT_LITERAL", lexeme, literal=lexeme, line=line, column=col)
+            # Only emit token if delimiter is valid
+            return Token("INT_LITERAL", lexeme, literal=lexeme, line=line, column=col)
 
     def _string_token(self, quote: str, line: int, col: int) -> Token:
         if quote != '"':
@@ -710,6 +731,7 @@ class Lexer:
             if ch in allowed and label not in seen:
                 parts.append(label)
                 seen.add(label)
+                seen.add(ch)  # Also mark the character itself as seen
 
         # Whitespace and EOF
         add("space", " ")
@@ -785,7 +807,9 @@ class Lexer:
 
         if not parts:
             parts.append(", ".join(sorted(a for a in allowed)))
-        return "- " + "- ".join(parts)
+        # Filter out empty strings and join
+        parts = [p for p in parts if p]
+        return ", ".join(parts)
 
     def _validate_symbol_follow(self, lexeme: str, line: int, col: int) -> None:
         # Get allowed delimiters for this symbol, or use default (whitespace)

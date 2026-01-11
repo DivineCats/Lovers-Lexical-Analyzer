@@ -73,3 +73,6 @@ Thumbs.db
 *.tmp
 *.temp
 .cache/
+
+# Documentation
+LEXER_DOCUMENTATION.md

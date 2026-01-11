@@ -131,10 +131,8 @@ class Lexer:
         self.line = 1
         self.column = 1
         self._partial_tokens: List[Token] = []
-        # Continuation states for chunking
         self._identifier_continuation: bool = False
         self._number_continuation: bool = False
-        # Lexical errors (non-fatal, allow continued scanning)
         self._lexical_errors: List[str] = []
 
     def _add_lexical_error(self, message: str) -> None:
@@ -252,9 +250,8 @@ class Lexer:
         if len(lexeme) == MAX_IDENTIFIER_LEN and self._is_identifier_part(nxt):
             self._identifier_continuation = True
             self._add_lexical_error(
-                f"Identifier exceeds {MAX_IDENTIFIER_LEN} characters; identifers not tokenized at {self.line}:{self.column}"
+                f"Identifier exceeds {MAX_IDENTIFIER_LEN} characters; not tokenized Invalid delimeter at {self.line}:{self.column}"
             )
-            # Return None or use a sentinel to indicate no token emitted
             return None  # Signal to skip token emission
         nxt = self._peek()
         # Special-case single ampersand so users get a clear hint to use '&&'.
@@ -327,7 +324,7 @@ class Lexer:
             self._identifier_continuation = True
             # Add error for this continuation chunk too
             self._add_lexical_error(
-                f"Identifier exceeds {MAX_IDENTIFIER_LEN} characters; identifers not tokenized at {self.line}:{self.column}"
+                f"Identifier exceeds {MAX_IDENTIFIER_LEN} characters; not tokenized Invalid delimeter at {self.line}:{self.column}"
             )
             # Don't emit token while still continuing
             return None

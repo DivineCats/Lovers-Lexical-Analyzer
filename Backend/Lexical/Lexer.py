@@ -222,13 +222,13 @@ class Lexer:
         two_char = ch + self._peek()
         if two_char in MULTI_CHAR_OPERATORS:
             self._advance()
-            self._validate_symbol_follow(two_char, start_line, start_col)
+            self._validate_symbol_follow(two_char, self.line, self.column)
             tokens.append(Token(MULTI_CHAR_OPERATORS[two_char], two_char, line=start_line, column=start_col))
             return
 
         if ch in SINGLE_CHAR_TOKENS:
             lexeme = ch
-            self._validate_symbol_follow(lexeme, start_line, start_col)
+            self._validate_symbol_follow(lexeme, self.line, self.column)
             tokens.append(Token(SINGLE_CHAR_TOKENS[lexeme], lexeme, line=start_line, column=start_col))
             return
 
@@ -260,7 +260,7 @@ class Lexer:
         # Special-case single ampersand so users get a clear hint to use '&&'.
         if nxt == "&" and self._peek_next() != "&":
             raise LexerError(
-                f"Single '&' is not allowed after identifier `{lexeme}` at {line}:{col}. Use '&&' instead.",
+                f"Single '&' is not allowed after identifier `{lexeme}` at {self.line}:{self.column}. Use '&&' instead.",
                 self._partial_tokens,
             )
         if nxt in BAD_SYMBOLS_AFTER_IDENTIFIER:
@@ -270,7 +270,7 @@ class Lexer:
                 pass  # allow '||'
             else:
                 raise LexerError(
-                    f"Invalid delimiter after identifier `{lexeme}` at {line}:{col}\n\nExpected: {self._format_expected(IDENT_FOLLOW_CHARS)}",
+                    f"Invalid delimiter after identifier `{lexeme}` at {self.line}:{self.column}\n\nExpected: {self._format_expected(IDENT_FOLLOW_CHARS)}",
                     self._partial_tokens,
                 )
         
@@ -281,7 +281,7 @@ class Lexer:
             keyword_result = self._match_keyword(lowered)
             if keyword_result is not None:
                 raise LexerError(
-                    f"Reserved word `{lowered}` must be written in lowercase at {line}:{col}",
+                    f"Reserved word `{lowered}` must be written in lowercase at {self.line}:{self.column}",
                     self._partial_tokens,
                 )
             # Validate delimiter for regular identifiers too
@@ -289,20 +289,20 @@ class Lexer:
             allowed = expanded_identifier_follows.get("identifier", IDENT_FOLLOW_CHARS)
             if nxt not in allowed:
                 raise LexerError(
-                    f"Invalid delimiter after identifier `{lexeme}` at {line}:{col}\n\nExpected: {self._format_expected(allowed)}",
+                    f"Invalid delimiter after identifier `{lexeme}` at {self.line}:{self.column}\n\nExpected: {self._format_expected(allowed)}",
                     self._partial_tokens,
                 )
         if keyword_result:
             nxt = self._peek()
             if nxt == "&" and self._peek_next() != "&":
                 raise LexerError(
-                    f"Single '&' is not allowed after `{lexeme}` at {line}:{col}. Use '&&' instead.",
+                    f"Single '&' is not allowed after `{lexeme}` at {self.line}:{self.column}. Use '&&' instead.",
                     self._partial_tokens,
                 )
             allowed = expanded_reserved_word_follows.get(lexeme, IDENT_FOLLOW_CHARS)
             if nxt not in allowed:
                 raise LexerError(
-                    f"Reserved word `{lexeme}` must be followed by a delimiter at {line}:{col}\n\nExpected: {self._format_expected(allowed)}",
+                    f"Reserved word `{lexeme}` must be followed by a delimiter at {self.line}:{self.column}\n\nExpected: {self._format_expected(allowed)}",
                     self._partial_tokens,
                 )
             kind, cpp_equiv = keyword_result
@@ -481,7 +481,7 @@ class Lexer:
                         self._number_continuation = True
                         lexeme = self.source[self.start:self.pos]
                         self._add_lexical_error(
-                            f"Float literal exceeds 6 fractional digits; first part not tokenized at {line}:{col}"
+                            f"Float literal exceeds 6 fractional digits; not tokenized Invalid delimeter at {self.line}:{self.column}"
                         )
                         return None  # Signal to skip token emission
                     break
@@ -559,13 +559,38 @@ class Lexer:
         return Token(token_kind, lexeme, literal=literal_clean, line=line, column=col)
 
     def _number_continuation_token(self, line: int, col: int) -> Token:
-        """Continue scanning from 11th+ digit after exceeding int limit."""
+        """Continue scanning from 11th+ digit or 7th+ fractional digit after exceeding limit."""
         count = 1
+        token_kind = "INT_LITERAL"
+        
+        # Consume digits
         while self._peek().isdigit() and count < 10:
             self._advance()
             count += 1
+        
+        # Check if there's a decimal point followed by more digits (makes it a float)
+        if self._peek() == "." and self._peek_next().isdigit():
+            token_kind = "FLOAT_LITERAL"
+            self._advance()  # consume the '.'
+            # Consume fractional digits up to 6
+            frac_count = 0
+            while self._peek().isdigit():
+                if frac_count >= 6:
+                    # Hit 6-digit fractional limit; if more digits follow, stay in continuation
+                    if self._peek().isdigit():
+                        self._number_continuation = True
+                        lexeme = self.source[self.start:self.pos]
+                        self._add_lexical_error(
+                            f"Float literal exceeds 6 fractional digits; not tokenized Invalid delimeter at {self.line}:{self.column}"
+                        )
+                        return None  # Don't emit this token, continue consuming
+                    break
+                self._advance()
+                frac_count += 1
+        
         lexeme = self.source[self.start:self.pos]
         nxt = self._peek()
+        
         # Check if we need to continue or if we can emit this chunk
         if count == 10 and nxt.isdigit():
             # Still exceeding, keep continuation mode active
@@ -575,6 +600,10 @@ class Lexer:
                 f"Integer literal exceeds 10 digits at {self.line}:{self.column}"
             )
             # Don't emit token while still continuing
+            return None
+        elif nxt == "." and self._peek_next().isdigit():
+            # Another decimal point - continue consuming as malformed number
+            self._number_continuation = True
             return None
         else:
             # Hit delimiter or shorter chunk; end continuation
@@ -586,12 +615,23 @@ class Lexer:
                         f"Identifiers cannot start with a digit. `{lexeme}{nxt}...` should start with an alphabet character at {self.line}:{self.column}",
                         self._partial_tokens,
                     )
+                human_kind = "float" if token_kind == "FLOAT_LITERAL" else "integer"
                 raise LexerError(
-                    f"Invalid delimiter after integer `{lexeme}`: at {self.line}:{self.column}\n\nExpected: {self._format_expected(NUMBER_FOLLOW_CHARS)}",
+                    f"Invalid delimiter after {human_kind} `{lexeme}`: at {self.line}:{self.column}\n\nExpected: {self._format_expected(NUMBER_FOLLOW_CHARS)}",
                     self._partial_tokens,
                 )
-            # Only emit token if delimiter is valid
-            return Token("INT_LITERAL", lexeme, literal=lexeme, line=line, column=col)
+            
+            # Emit the overflow token
+            if token_kind == "INT_LITERAL":
+                return Token(token_kind, lexeme, literal=lexeme, line=line, column=col)
+            else:
+                # Format float literal
+                int_part, _, frac_part = lexeme.partition(".")
+                norm_int = int_part.lstrip("0") or "0"
+                norm_frac_raw = frac_part.rstrip("0")
+                truncated_frac = norm_frac_raw[:6] if norm_frac_raw else "0"
+                literal_clean = f"{norm_int}.{truncated_frac}"
+                return Token(token_kind, lexeme, literal=literal_clean, line=line, column=col)
 
     def _string_token(self, quote: str, line: int, col: int) -> Token:
         if quote != '"':

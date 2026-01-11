@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from Backend.Lexical import Lexer, tokenize_with_errors, validate_program_structure
+from Backend.Lexical import Lexer, tokenize_with_errors
 from Backend.Lexical.Lexer import LexerError
 
 
@@ -27,39 +27,15 @@ def main() -> int:
             print("Lexical errors:")
             for e in lex_errors:
                 print(" -", e)
-        result = validate_program_structure(tokens)
+            return 1
+        print("Lexing successful!")
+        return 0
     except LexerError as exc:  # pragma: no cover - defensive user feedback
         print(f"Lexing failed: {exc}")
         return 1
     except Exception as exc:  # pragma: no cover - defensive user feedback
-        print(f"Validation failed: {exc}")
+        print(f"Lexing failed: {exc}")
         return 1
-
-    if result.get("ok"):
-        print(result)
-        return 0
-
-    # Provide a more helpful, delimiter-focused message when available.
-    token = result.get("token")
-    expected = result.get("expected")
-    if expected:
-        expect_msg = f"Expected one of: {', '.join(expected)}"
-    else:
-        expect_msg = None
-
-    parts = [
-        f"Validation error: {result.get('message', 'Unknown error')}",
-        f"Code: {result.get('code', 'N/A')}",
-    ]
-    if token:
-        parts.append(
-            f"At line {token.get('line', '?')}, column {token.get('column', '?')}: found `{token.get('lexeme', '?')}` ({token.get('kind', '?')})"
-        )
-    if expect_msg:
-        parts.append(expect_msg)
-
-    print("\n".join(parts))
-    return 1
 
 
 if __name__ == "__main__":

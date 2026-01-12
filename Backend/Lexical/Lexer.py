@@ -522,12 +522,21 @@ class Lexer:
         # Now validate delimiter
         nxt = self._peek()
         if nxt not in NUMBER_FOLLOW_CHARS:
-            # Special case: if next char is a letter, user likely tried to write an identifier starting with a digit
-            if nxt in ALPHA:
-                raise LexerError(
-                    f"Identifiers cannot start with a digit. `{lexeme}{nxt}...` should start with an alphabet character at {line}:{col}",
-                    self._partial_tokens,
+            # Special case: if next char is a letter or alphanumeric, this is an invalid token
+            # e.g., "123qwe" - identifiers cannot start with a digit
+            # Consume up to MAX_IDENTIFIER_LEN total chars, then let rest be a new token
+            if nxt in ALPHA or self._is_identifier_part(nxt):
+                # Consume alphanumeric chars up to the 20-char limit
+                while self._is_identifier_part(self._peek()) and (self.pos - self.start) < MAX_IDENTIFIER_LEN:
+                    self._advance()
+                invalid_lexeme = self.source[self.start:self.pos]
+                # Check if more identifier chars follow - if so, set continuation mode
+                if self._is_identifier_part(self._peek()):
+                    self._identifier_continuation = True
+                self._add_lexical_error(
+                    f"Invalid token `{invalid_lexeme}`: identifiers cannot start with a digit at {line}:{col}"
                 )
+                return None  # Don't emit a token, let continuation handle the rest
             human_kind = "float" if token_kind == "FLOAT_LITERAL" else "integer"
             raise LexerError(
                 f"Invalid delimiter after {human_kind} {lexeme}: {nxt} at {line}:{self.column}\nExpected: {self._format_expected(NUMBER_FOLLOW_CHARS)}",
@@ -606,9 +615,13 @@ class Lexer:
             self._number_continuation = False
             # Only validate delimiter at the very end when continuation stops
             if nxt not in NUMBER_FOLLOW_CHARS:
-                if nxt in ALPHA:
+                # If next char is a letter or alphanumeric, consume the entire invalid token
+                if nxt in ALPHA or self._is_identifier_part(nxt):
+                    while self._is_identifier_part(self._peek()):
+                        self._advance()
+                    invalid_lexeme = self.source[self.start:self.pos]
                     raise LexerError(
-                        f"Identifiers cannot start with a digit. `{lexeme}{nxt}...` should start with an alphabet character at {self.line}:{self.column}",
+                        f"Invalid token `{invalid_lexeme}`: identifiers cannot start with a digit at {self.line}:{self.column}",
                         self._partial_tokens,
                     )
                 human_kind = "float" if token_kind == "FLOAT_LITERAL" else "integer"

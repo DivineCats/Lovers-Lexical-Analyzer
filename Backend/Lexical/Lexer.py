@@ -230,7 +230,7 @@ class Lexer:
             tokens.append(Token(SINGLE_CHAR_TOKENS[lexeme], lexeme, line=start_line, column=start_col))
             return
 
-        raise LexerError(f"Unexpected character {ch!r} at {start_line}:{start_col}", tokens)
+        raise LexerError(f"Unexpected character '{ch}' at {start_line}:{start_col}", tokens)
 
     def _recover_after_error(self) -> None:
         # The error already occurred at the current token position.
@@ -335,7 +335,7 @@ class Lexer:
             allowed = expanded_identifier_follows.get("identifier", IDENT_FOLLOW_CHARS)
             if nxt not in allowed:
                 raise LexerError(
-                    f"Invalid delimiter after identifier continuation `{lexeme}` at {self.line}:{self.column}\n\nExpected: {self._format_expected(allowed)}",
+                    f"Invalid delimiter after identifier `{lexeme}` at {self.line}:{self.column}\n\nExpected: {self._format_expected(allowed)}",
                     self._partial_tokens,
                 )
             # Only emit token if delimiter is valid
@@ -454,7 +454,6 @@ class Lexer:
         # Read remaining digits up to 10 total digits for integer part
         while self._peek().isdigit():
             if int_count >= 10:
-                # Hit 10-digit limit; if more digits follow without delimiter, skip first chunk
                 if self._peek().isdigit():
                     self._number_continuation = True
                     lexeme = self.source[self.start:self.pos]
@@ -636,6 +635,11 @@ class Lexer:
                 f'String values must be enclosed in double quotes (") at {line}:{col}',
                 self._partial_tokens,
             )
+        # Save position after opening quote for recovery
+        pos_after_quote = self.pos
+        line_after_quote = self.line
+        col_after_quote = self.column
+        
         escaped = False
         content_chars: list[str] = []
         while not self._is_at_end():
@@ -697,8 +701,18 @@ class Lexer:
                     )
                 return Token("STRING_LITERAL", lexeme, literal=inner, line=line, column=col)
             if c == "\n":
+                # Unterminated string - reset position to after the opening quote
+                # so remaining characters can be tokenized
+                self.pos = pos_after_quote
+                self.line = line_after_quote
+                self.column = col_after_quote
                 raise LexerError(f"Unterminated string at {line}:{col}", self._partial_tokens)
             content_chars.append(c)
+        # EOF reached - reset position to after the opening quote
+        # so remaining characters can be tokenized
+        self.pos = pos_after_quote
+        self.line = line_after_quote
+        self.column = col_after_quote
         raise LexerError(f"Unterminated string at {line}:{col}", self._partial_tokens)
 
     def _skip_line_comment(self) -> None:
@@ -706,13 +720,22 @@ class Lexer:
             self._advance()
 
     def _skip_block_comment(self) -> None:
+        # Save position after /* for recovery
+        pos_after_start = self.pos
+        line_after_start = self.line
+        col_after_start = self.column
+        
         while not self._is_at_end():
             if self._peek() == "*" and self._peek_next() == "/":
                 self._advance()
                 self._advance()
                 return
             self._advance()
-        raise LexerError("Unterminated block comment", self._partial_tokens)
+        # EOF reached - reset position to after /* so remaining characters can be tokenized
+        self.pos = pos_after_start
+        self.line = line_after_start
+        self.column = col_after_start
+        raise LexerError("Unterminated block comment at start", self._partial_tokens)
 
     def _is_identifier_start(self, ch: str) -> bool:
         # Must start with a letter (no leading underscores per language rules).

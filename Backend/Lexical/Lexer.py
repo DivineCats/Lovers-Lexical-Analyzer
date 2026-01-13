@@ -40,6 +40,7 @@ RESERVED_WORDS = {
     "greenflag": ("BOOL_LITERAL_TRUE", "greenflag"),
     "boundaries": ("KEYWORD_NAMESPACE", "boundaries"),
     "comeback": ("KEYWORD_RETURN", "comeback"),
+    "avoidant": ("KEYWORD_VOID", "avoidant"),
 }
 
 MULTI_CHAR_OPERATORS = {
@@ -349,13 +350,18 @@ class Lexer:
         
         first = value[0]
         
+        # 'a' keywords
+        if first == 'a':
+            if length == 8 and value[1] == 'v' and value[2] == 'o' and value[3] == 'i' and value[4] == 'd' and value[5] == 'a' and value[6] == 'n' and value[7] == 't':
+                return ("KEYWORD_VOID", "avoidant")
+        
         # 'b' keywords
-        if first == 'b':
+        elif first == 'b':
             if length == 7 and value[1] == 'r' and value[2] == 'e' and value[3] == 'a' and value[4] == 'k' and value[5] == 'u' and value[6] == 'p':
                 return ("KEYWORD_BREAK", "breakup")
             elif length == 10 and value[1] == 'o' and value[2] == 'u' and value[3] == 'n' and value[4] == 'd' and value[5] == 'a' and value[6] == 'r' and value[7] == 'i' and value[8] == 'e' and value[9] == 's':
                 return ("KEYWORD_NAMESPACE", "boundaries")
-            elif length == 12 and value[1] == 'a' and value[2] == 'r' and value[3] == 'e' and value[4] == 'm' and value[5] == 'i' and value[6] == 'n' and value[7] == 'i' and value[8] == 'm' and value[9] == 'u' and value[10] == 'm':
+            elif length == 11 and value[1] == 'a' and value[2] == 'r' and value[3] == 'e' and value[4] == 'm' and value[5] == 'i' and value[6] == 'n' and value[7] == 'i' and value[8] == 'm' and value[9] == 'u' and value[10] == 'm':
                 return ("KEYWORD_DEFAULT", "bareminimum")
         
         # 'c' keywords

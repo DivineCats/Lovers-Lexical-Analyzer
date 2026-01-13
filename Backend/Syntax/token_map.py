@@ -68,7 +68,7 @@ reserved_word_follows = {
     "redflag": {" ", "\t", "\n",";", ":"},
     "boundaries": {" ", "\t", "\n"},
     "comeback": {";", "(", '"', "-", "!", " ", "\t", "\n"},
-    "avoidant": {" ", "\t", "\n", "alphabet"},
+    "avoidant": {" ", "\t", "\n"},
     
 }
 
@@ -77,11 +77,11 @@ reserved_word_follows = {
 
 reserved_symbol_follows = {
     # Arithmetic
-    "+": {" ", "\t", "\n", "alphanum", '"', "("},
-    "-": {" ", "\t", "\n", "alphanum", '"', "("},
-    "*": {" ", "\t", "\n", "alphanum", '"', "("},
-    "/": {" ", "\t", "\n", "alphanum", '"', "(",},
-    "%": {" ", "\t", "\n", "alphanum", '"', "("},
+    "+": {" ", "\t", "\n", "alphanum", "("},
+    "-": {" ", "\t", "\n", "alphanum", "("},
+    "*": {" ", "\t", "\n", "alphanum", "("},
+    "/": {" ", "\t", "\n", "alphanum", "(",},
+    "%": {" ", "\t", "\n", "alphanum", "("},
     # Assignment
     "=": {" ", "\t", "\n", '"', "alphanum", "("},
     "+=": {" ", "\t", "\n", "alphanum", '"', "("},
@@ -101,12 +101,12 @@ reserved_symbol_follows = {
     ">=": {" ", "\t", "\n", "alphanum", '"', "("},
     "<=": {" ", "\t", "\n", "alphanum", '"', "("},
     # Unary
-    "++": {" ", "\t", "\n", ";", ")", "alphanum"},
-    "--": {" ", "\t", "\n", ";", ")", "alphanum"},
+    "++": {" ", "\t", "\n", ";", ")", "alphabet"},
+    "--": {" ", "\t", "\n", ";", ")", "alphabet"},
     # Other
     "(": {" ", "\t", "\n", "alphanum", '"', "(", "!", ")", "-"},
     ")": {" ", "\t", "\n", "{", "+", "-", "*", "/", "%", "&&", "|", ";"},
-    "[": {" ", "\t", "\n", "]"},
+    "[": {" ", "\t", "\n", "]", "alphanum", '"'},
     "]": {" ", "\t", "\n", "=" },
     "{": {" ", "\t", "\n", "}", '"', "alphanum" },
     "}": {" ", "\t", "\n", "alphabet", "\0" , ";"},

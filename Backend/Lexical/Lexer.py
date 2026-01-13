@@ -202,11 +202,20 @@ class Lexer:
                 return
             self._number_continuation = False
         if ch == "-" and self._peek().isdigit():
-            # Negative number literal
-            tok = self._number_token(start_line, start_col, allow_negative=True)
-            if tok is not None:
-                tokens.append(tok)
-            return
+            # Only treat as negative number if NOT preceded by a number, identifier, or )
+            # Otherwise it's subtraction: 1-3 => 1, -, 3
+            prev_token = tokens[-1] if tokens else None
+            is_subtraction = prev_token and prev_token.kind in {
+                "INT_LITERAL", "FLOAT_LITERAL", "IDENTIFIER", "RPAREN", "RBRACKET",
+                "BOOL_LITERAL_TRUE", "BOOL_LITERAL_FALSE", "OP_INC", "OP_DEC"
+            }
+            if not is_subtraction:
+                # Negative number literal
+                tok = self._number_token(start_line, start_col, allow_negative=True)
+                if tok is not None:
+                    tokens.append(tok)
+                return
+            # Otherwise fall through to treat '-' as operator
         if ch.isdigit():
             tok = self._number_token(start_line, start_col)
             if tok is not None:

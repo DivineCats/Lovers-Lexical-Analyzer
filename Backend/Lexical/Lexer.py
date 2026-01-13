@@ -415,7 +415,7 @@ class Lexer:
         
         # 'o' keywords
         elif first == 'o':
-            if length == 10 and value[1] == 'v' and value[2] == 'e' and value[3] == 'r' and value[4] == 's' and value[5] == 'h' and value[6] == 'a' and value[7] == 'r' and value[8] == 'e':
+            if length == 9 and value[1] == 'v' and value[2] == 'e' and value[3] == 'r' and value[4] == 's' and value[5] == 'h' and value[6] == 'a' and value[7] == 'r' and value[8] == 'e':
                 return ("KEYWORD_IO_OVERSHARE", "overshare")
         
         # 'p' keywords

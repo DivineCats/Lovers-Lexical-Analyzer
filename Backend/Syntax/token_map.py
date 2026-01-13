@@ -77,7 +77,7 @@ reserved_word_follows = {
 
 reserved_symbol_follows = {
     # Arithmetic
-    "+": {" ", "\t", "\n", "alphanum", "("},
+    "+": {" ", "\t", "\n", "alphanum", "(",},
     "-": {" ", "\t", "\n", "alphanum", "("},
     "*": {" ", "\t", "\n", "alphanum", "("},
     "/": {" ", "\t", "\n", "alphanum", "(",},
@@ -112,7 +112,7 @@ reserved_symbol_follows = {
     "}": {" ", "\t", "\n", "alphabet", "\0" , ";"},
     ";": {" ", "\t", "\n", "\0"},
     ":": {" ", "\t", "\n"},
-    "::":{"alphabet"},
+    "::":{" ", "\t", "\n", "alphabet"},
     '"': {" ", "\t", "\n", ";", ")", "<", "alphanum"},
     "<<": {" ", "\t", "\n", "alphanum", '"'},
     ">>": {" ", "\t", "\n", "alphabet"},

@@ -1,4 +1,10 @@
 import "./Terminals.css";
+import {
+  getConstructionHint,
+  getKeywordSuggestions,
+  getSymbolSuggestions,
+  extractExpectedTokens,
+} from "./syntaxHelper";
 
 export type ValidationTokenInfo = {
   lexeme?: string;
@@ -13,6 +19,10 @@ export type ValidationError = {
   code?: string;
   token?: ValidationTokenInfo;
   expected?: string[];
+  line?: number;
+  column?: number;
+  found?: string;
+  context?: string;
 };
 
 export type ValidationResult = {
@@ -22,15 +32,21 @@ export type ValidationResult = {
   token?: ValidationTokenInfo;
   expected?: string[];
   errors?: ValidationError[];
+  line?: number;
+  column?: number;
+  found?: string;
 };
 
 export type ErrorItem = {
-  type: "lexical" | "semantic" | "backend";
+  type: "lexical" | "syntax" | "semantic" | "backend";
   message: string;
   line?: number;
   column?: number;
   expected?: string[];
   unexpectedToken?: string;
+  context?: string;
+  expectedDelimiter?: string;
+  possibleReserved?: string;
 };
 
 type Props = {
@@ -40,35 +56,20 @@ type Props = {
   backendError?: string | null;
 };
 
-export default function Terminal({ lexError = null, lexErrors = [], backendError = null }: Props) {
-  // Parse lexical errors into structured format
+export default function Terminal({ validation = null, lexError = null, lexErrors = [], backendError = null }: Props) {
+  // Parse all errors into structured format
   const errors: ErrorItem[] = [];
-
-  // Reserved keywords (mirror of backend set) for suggestions
-  const KEYWORDS = [
-    "give","express","overshare","dear","dearest","rant","status",
-    "forever","more","forevermore","choose","phase","bareminimum",
-    "for","while","pursue","breakup","moveon","love","periodt",
-    "const","redflag","greenflag","boundaries","comeback","avoidant"
-  ];
-
-  // Operator/symbol suggestions based on prefix
-  const SYMBOLS = [
-    "+", "++", "+=", "-", "--", "-=", "*", "*=", "/", "/=", "%", "%=",
-    "==", "!=", ">", ">=", "<", "<=", "&&", "||", "::", "<<", ">>"
-  ];
 
   const renderKeywordSuggestions = (message: string) => {
     // Try to extract an offending lexeme from backticks in the first line
     const m = message.match(/`([A-Za-z][A-Za-z0-9_]*)`/);
     const word = m ? m[1] : undefined;
     if (!word) return null;
-    const lower = word.toLowerCase();
-    const suggestions = KEYWORDS.filter(k => k !== lower && k.startsWith(lower)).slice(0, 6);
+    const suggestions = getKeywordSuggestions(word);
     if (suggestions.length === 0) return null;
     return (
       <div className="error-details">
-        <div className="error-detail-line">Possible keywords: {suggestions.join(", ")}</div>
+        <div className="error-detail-line">Possible Reserved words: {suggestions.join(", ")}</div>
       </div>
     );
   };
@@ -78,39 +79,13 @@ export default function Terminal({ lexError = null, lexErrors = [], backendError
     const m = message.match(/`([^`]+)`/);
     const sym = m ? m[1] : undefined;
     if (!sym) return null;
-    const suggestions = SYMBOLS.filter(s => s !== sym && s.startsWith(sym)).slice(0, 6);
+    const suggestions = getSymbolSuggestions(sym);
     if (suggestions.length === 0) return null;
     return (
       <div className="error-details">
         <div className="error-detail-line">Possible symbols: {suggestions.join(", ")}</div>
       </div>
     );
-  };
-
-  const extractExpectedTokens = (lines: string[]): string[] => {
-    for (const line of lines) {
-      const match = line.match(/expected(?: one of)?\s*[:\-]\s*(.*)/i);
-      if (match && match[1]) {
-        const payload = match[1].trim();
-        const clean = (t: string) => t.trim().replace(/^[`]+|[`]+$/g, "");
-        const keep = (t: string) => t.length > 0 && t !== "-";
-
-        // Prefer backend dash-separated format: "- token - token - , - :"
-        const dashSplit = payload
-          .split(/\s*-\s+/)
-          .map(clean)
-          .filter(keep);
-        if (dashSplit.length > 0) {
-          return dashSplit;
-        }
-        // Fallback: split on whitespace only (preserve literal comma tokens)
-        return payload
-          .split(/\s+/)
-          .map(clean)
-          .filter(keep);
-      }
-    }
-    return [];
   };
   
   if (lexErrors.length > 0) {
@@ -121,6 +96,12 @@ export default function Terminal({ lexError = null, lexErrors = [], backendError
       // Extract line and column if present (format: "at line X, column Y" or "at X:Y")
       const locationMatch = firstLine.match(/at (?:line )?(\d+)[,:]\s*(?:column )?(\d+)/i);
       
+      // Extract "Expected delimiter:" line for reserved words
+      const expectedDelimiterLine = lines.find(line => line.toLowerCase().startsWith("expected delimiter:"));
+      
+      // Extract "Possible Reserved words:" line
+      const possibleReservedLine = lines.find(line => line.toLowerCase().startsWith("possible reserved"));
+      
       const expectedTokens = extractExpectedTokens(lines);
       
       errors.push({
@@ -129,12 +110,20 @@ export default function Terminal({ lexError = null, lexErrors = [], backendError
         line: locationMatch ? parseInt(locationMatch[1]) : undefined,
         column: locationMatch ? parseInt(locationMatch[2]) : undefined,
         expected: expectedTokens.length > 0 ? expectedTokens : undefined,
+        expectedDelimiter: expectedDelimiterLine,
+        possibleReserved: possibleReservedLine,
       });
     });
   } else if (lexError) {
     const lines = lexError.split(/\r?\n/).filter(line => line.trim().length > 0);
     const firstLine = lines[0] || "";
     const locationMatch = firstLine.match(/at (?:line )?(\d+)[,:]\s*(?:column )?(\d+)/i);
+    
+    // Extract "Expected delimiter:" line for reserved words
+    const expectedDelimiterLine = lines.find(line => line.toLowerCase().startsWith("expected delimiter:"));
+    
+    // Extract "Possible Reserved words:" line
+    const possibleReservedLine = lines.find(line => line.toLowerCase().startsWith("possible reserved"));
     
     const expectedTokens = extractExpectedTokens(lines);
     
@@ -144,7 +133,35 @@ export default function Terminal({ lexError = null, lexErrors = [], backendError
       line: locationMatch ? parseInt(locationMatch[1]) : undefined,
       column: locationMatch ? parseInt(locationMatch[2]) : undefined,
       expected: expectedTokens.length > 0 ? expectedTokens : undefined,
+      expectedDelimiter: expectedDelimiterLine,
+      possibleReserved: possibleReservedLine,
     });
+  }
+
+  // Process syntax validation errors
+  if (validation && !validation.ok) {
+    if (validation.errors && validation.errors.length > 0) {
+      validation.errors.forEach((err: any) => {
+        errors.push({
+          type: "syntax",
+          message: err.message || "Syntax error",
+          line: err.line,
+          column: err.column,
+          expected: err.expected,
+          unexpectedToken: err.found,
+          context: err.context,
+        });
+      });
+    } else {
+      errors.push({
+        type: "syntax",
+        message: validation.message,
+        line: (validation as any).line,
+        column: (validation as any).column,
+        expected: validation.expected,
+        unexpectedToken: (validation as any).found,
+      });
+    }
   }
 
   if (backendError) {
@@ -155,9 +172,13 @@ export default function Terminal({ lexError = null, lexErrors = [], backendError
   }
 
   const lexicalCount = errors.filter(e => e.type === "lexical").length;
+  const syntaxCount = errors.filter(e => e.type === "syntax").length;
   const semanticCount = errors.filter(e => e.type === "semantic").length;
   const backendCount = errors.filter(e => e.type === "backend").length;
-  const hasErrors = lexicalCount > 0 || semanticCount > 0 || backendCount > 0;
+  const hasErrors = lexicalCount > 0 || syntaxCount > 0 || semanticCount > 0 || backendCount > 0;
+
+  // Check if we should show the "resolve lexical first" prompt
+  const hasLexicalErrors = lexicalCount > 0;
 
   return (
     <div className="terminal-panel">
@@ -166,6 +187,7 @@ export default function Terminal({ lexError = null, lexErrors = [], backendError
         {hasErrors && (
           <div className="error-summary">
             {lexicalCount > 0 && <span className="error-count">Lexical: {lexicalCount}</span>}
+            {syntaxCount > 0 && <span className="error-count">Syntax: {syntaxCount}</span>}
             {semanticCount > 0 && <span className="error-count">Semantic: {semanticCount}</span>}
             {backendCount > 0 && <span className="error-count">Backend: {backendCount}</span>}
           </div>
@@ -173,32 +195,51 @@ export default function Terminal({ lexError = null, lexErrors = [], backendError
         {errors.length === 0 && (
           <div className="term-log__empty">No errors detected.</div>
         )}
-        {errors.map((error, idx) => (
-          <div key={idx} className="error-container">
-            <div className="error-item">
-              <span className={`error-badge error-badge--${error.type}`}>
-                {error.type.toUpperCase()}
-              </span>
-              <span className="error-message">{error.message}</span>
+        {errors.map((error, idx) => {
+          const constructionHint = error.type === "syntax" ? getConstructionHint(error.expected, error.message) : null;
+          
+          return (
+            <div key={idx} className="error-container">
+              <div className="error-item">
+                <span className={`error-badge error-badge--${error.type}`}>
+                  {error.type.toUpperCase()}
+                </span>
+                <span className="error-message">
+                  {error.message}
+                  {(error.type !== "lexical" && error.line !== undefined && error.column !== undefined && error.line > 0 && error.column > 0) && (
+                    <span className="error-location-inline"> (line {error.line}, col {error.column})</span>
+                  )}
+                </span>
+              </div>
+              
+              {/* Show expected delimiter for lexical errors (reserved words) */}
+              {error.type === "lexical" && error.expectedDelimiter && (
+                <div className="error-details">
+                  <div className="error-detail-line">{error.expectedDelimiter}</div>
+                </div>
+              )}
+              
+              {/* Show construction hint for syntax errors */}
+              {constructionHint && (
+                <div className="error-hint">
+                  {constructionHint}
+                </div>
+              )}
+              
+              {renderKeywordSuggestions(error.message)}
+              {renderSymbolSuggestions(error.message)}
             </div>
-            {error.unexpectedToken && (
-              <div className="error-details">
-                <div className="error-detail-line">
-                  Unexpected token: <span className="token-value">{error.unexpectedToken}</span>
-                </div>
-              </div>
-            )}
-            {error.expected && error.expected.length > 0 && (
-              <div className="error-details">
-                <div className="error-detail-line">
-                  Expected tokens: {error.expected.join(", ")}
-                </div>
-              </div>
-            )}
-            {renderKeywordSuggestions(error.message)}
-            {renderSymbolSuggestions(error.message)}
+          );
+        })}
+        {/* Show prompt to resolve lexical errors first before syntax analysis */}
+        {hasLexicalErrors && (
+          <div className="error-container">
+            <div className="error-item">
+              <span className="error-badge error-badge--syntax">SYNTAX</span>
+              <span className="error-message">Lexical errors detected. Resolve them before syntax analysis.</span>
+            </div>
           </div>
-        ))}
+        )}
       </div>
     </div>
   );

@@ -43,6 +43,7 @@ RESERVED_WORDS = {
     "avoidant": ("KEYWORD_VOID", "avoidant"),
 }
 
+
 MULTI_CHAR_OPERATORS = {
     "==": "OP_EQ",
     "!=": "OP_NEQ",
@@ -227,6 +228,7 @@ class Lexer:
                 tokens.append(tok)
             return
 
+
         two_char = ch + self._peek()
         if two_char in MULTI_CHAR_OPERATORS:
             self._advance()
@@ -263,7 +265,44 @@ class Lexer:
                 f"Identifier exceeds {MAX_IDENTIFIER_LEN} characters; not tokenized Invalid delimeter at {self.line}:{self.column}"
             )
             return None  # Signal to skip token emission
+        
+        # Check if it's a keyword FIRST before validating delimiters
+        keyword_result = self._match_keyword(lexeme)
+        if keyword_result is None:
+            # Check for case-insensitive match (wrong case)
+            lowered = lexeme.lower()
+            keyword_result = self._match_keyword(lowered)
+            if keyword_result is not None:
+                raise LexerError(
+                    f"Reserved word `{lowered}` must be written in lowercase at {self.line}:{self.column}",
+                    self._partial_tokens,
+                )
+        
         nxt = self._peek()
+        
+        # If it's a keyword, validate against keyword-specific delimiters
+        if keyword_result:
+            if nxt == "&" and self._peek_next() != "&":
+                raise LexerError(
+                    f"Single '&' is not allowed after `{lexeme}` at {self.line}:{self.column}. Use '&&' instead.",
+                    self._partial_tokens,
+                )
+            allowed = expanded_reserved_word_follows.get(lexeme, IDENT_FOLLOW_CHARS)
+            if nxt not in allowed:
+                raise LexerError(
+                    f"Reserved word `{lexeme}` must be followed by a valid delimiter at {self.line}:{self.column}\n\nExpected delimiter: {self._format_expected_readable(allowed)}",
+                    self._partial_tokens,
+                )
+            kind, cpp_equiv = keyword_result
+            literal = cpp_equiv if kind.startswith("BOOL_LITERAL") else None
+            return Token(kind=kind,
+                         lexeme=lexeme,
+                         literal=literal,
+                         line=line,
+                         column=col,
+                         cpp_equivalent=cpp_equiv)
+        
+        # It's a regular identifier - validate delimiter
         # Special-case single ampersand so users get a clear hint to use '&&'.
         if nxt == "&" and self._peek_next() != "&":
             raise LexerError(
@@ -281,45 +320,12 @@ class Lexer:
                     self._partial_tokens,
                 )
         
-        # Character-by-character keyword matching
-        keyword_result = self._match_keyword(lexeme)
-        if keyword_result is None:
-            lowered = lexeme.lower()
-            keyword_result = self._match_keyword(lowered)
-            if keyword_result is not None:
-                raise LexerError(
-                    f"Reserved word `{lowered}` must be written in lowercase at {self.line}:{self.column}",
-                    self._partial_tokens,
-                )
-            # Validate delimiter for regular identifiers too
-            nxt = self._peek()
-            allowed = expanded_identifier_follows.get("identifier", IDENT_FOLLOW_CHARS)
-            if nxt not in allowed:
-                raise LexerError(
-                    f"Invalid delimiter after identifier `{lexeme}` at {self.line}:{self.column}\n\nExpected: {self._format_expected(allowed)}",
-                    self._partial_tokens,
-                )
-        if keyword_result:
-            nxt = self._peek()
-            if nxt == "&" and self._peek_next() != "&":
-                raise LexerError(
-                    f"Single '&' is not allowed after `{lexeme}` at {self.line}:{self.column}. Use '&&' instead.",
-                    self._partial_tokens,
-                )
-            allowed = expanded_reserved_word_follows.get(lexeme, IDENT_FOLLOW_CHARS)
-            if nxt not in allowed:
-                raise LexerError(
-                    f"Reserved word `{lexeme}` must be followed by a delimiter at {self.line}:{self.column}\n\nExpected: {self._format_expected(allowed)}",
-                    self._partial_tokens,
-                )
-            kind, cpp_equiv = keyword_result
-            literal = cpp_equiv if kind.startswith("BOOL_LITERAL") else None
-            return Token(kind=kind,
-                         lexeme=lexeme,
-                         literal=literal,
-                         line=line,
-                         column=col,
-                         cpp_equivalent=cpp_equiv)
+        allowed = expanded_identifier_follows.get("identifier", IDENT_FOLLOW_CHARS)
+        if nxt not in allowed:
+            raise LexerError(
+                f"Invalid delimiter after identifier `{lexeme}` at {self.line}:{self.column}\n\nExpected: {self._format_expected(allowed)}",
+                self._partial_tokens,
+            )
         return Token("IDENTIFIER", lexeme, line=line, column=col)
 
     def _identifier_continuation_token(self, line: int, col: int) -> Token:
@@ -792,6 +798,7 @@ class Lexer:
             return "\0"
         return self.source[self.pos + 1]
 
+
     def _peek_non_whitespace(self) -> str:
         i = self.pos
         while i < self.length and self.source[i] in {" ", "\t", "\r", "\n"}:
@@ -809,6 +816,25 @@ class Lexer:
 
     def _is_at_end(self) -> bool:
         return self.pos >= self.length
+
+    def _format_expected_readable(self, allowed: set[str]) -> str:
+        """Format expected delimiters in a readable way for reserved words."""
+        parts: List[str] = []
+        
+        # Check for whitespace
+        if " " in allowed:
+            parts.append("Space")
+        if "\t" in allowed:
+            parts.append("Tab")
+        if "\n" in allowed:
+            parts.append("Newline")
+        
+        # Add specific symbols
+        for ch in sorted(allowed):
+            if ch not in {" ", "\t", "\n", "\0"}:
+                parts.append(ch)
+        
+        return ", ".join(parts)
 
     def _format_expected(self, allowed: set[str]) -> str:
         parts: List[str] = []

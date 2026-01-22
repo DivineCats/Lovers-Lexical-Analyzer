@@ -175,6 +175,10 @@ export default function App() {
             expected: Array.isArray(err?.expected)
               ? (err.expected as string[])
               : undefined,
+            line: err?.line as number | undefined,
+            column: err?.column as number | undefined,
+            found: err?.found as string | undefined,
+            context: err?.context as string | undefined,
           }))
         : undefined;
 
@@ -187,6 +191,9 @@ export default function App() {
           ? (payload.expected as string[])
           : undefined,
         errors: syntaxErrors,
+        line: payload?.line as number | undefined,
+        column: payload?.column as number | undefined,
+        found: payload?.found as string | undefined,
       };
       setValidation(failure);
       return failure;
@@ -206,15 +213,15 @@ export default function App() {
       void (async () => {
         const { rows: toks, hasLexError } = await lexSource(source);
         if (!hasLexError && toks.length) {
-          // Optional: add syntax validation here if needed
-          setValidation(null);
+          // Run syntax validation after successful lexing
+          await syntaxSource();
         } else {
           setValidation(null);
         }
       })();
     }, 400);
     return () => clearTimeout(handle);
-  }, [lexSource, source]);
+  }, [lexSource, syntaxSource, source]);
 
   const handleEditorChange = useCallback(
     (files: FileTab[], activeId: string) => {

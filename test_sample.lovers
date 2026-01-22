@@ -1,0 +1,15 @@
+love main() {
+    dear x = 5;
+    dear y = 10;
+    dear sum = x + y;
+    
+    express << sum;
+    express << periodt;
+    
+    forever (x < 10) {
+        express << x;
+        x = x + 1;
+    }
+    
+    comeback 0;
+}

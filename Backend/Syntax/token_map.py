@@ -1,6 +1,6 @@
 """Token follow-set mappings for the Lovers language."""
 
-from string import ascii_letters, digits, printable
+from string import ascii_letters, digits
 from typing import Iterable, Set
 
 # --- base character classes -------------------------------------------------
@@ -8,8 +8,6 @@ from typing import Iterable, Set
 alphabet: Set[str] = set(ascii_letters)
 digit: Set[str] = set(digits)
 alphanum: Set[str] = alphabet | digit
-# string.printable includes whitespace like "\t" and "\n"; exclude those here.
-ascii_printable: Set[str] = set(printable) - {"\t", "\n"}
 
 # --- Literal character sets (transferred from Literals.py) -----------------
 
@@ -25,16 +23,6 @@ Literals = {
         '0','1','2','3','4','5','6','7','8','9',
     },
 }
-
-# --- named delimiter/follower sets (as declared in the spec) ----------------
-
-def chars(items: Iterable[str]) -> Set[str]:
-    out: Set[str] = set()
-    for it in items:
-        if isinstance(it, str):
-            out.add(it)
-    return out
-
 
 # --- Reserved words and their expected followers ---------------------------
 
@@ -105,9 +93,9 @@ reserved_symbol_follows = {
     "--": {" ", "\t", "\n", ";", ")", "alphabet"},
     # Other
     "(": {" ", "\t", "\n", "alphanum", '"', "(", "!", ")", "-"},
-    ")": {" ", "\t", "\n", "{", "+", "-", "*", "/", "%", "&&", "|", ";"},
+    ")": {" ", "\t", "\n", "{", "+", "-", "*", "/", "%", "&&", "|", ";", "."},
     "[": {" ", "\t", "\n", "]", "alphanum", '"'},
-    "]": {" ", "\t", "\n", "=" },
+    "]": {" ", "\t", "\n", "=", ".", "[", ")", ",", ";" },
     "{": {" ", "\t", "\n", "}", '"', "alphanum" },
     "}": {" ", "\t", "\n", "alphabet", "\0" , ";"},
     ";": {" ", "\t", "\n", "\0"},
@@ -120,9 +108,6 @@ reserved_symbol_follows = {
     "*/": {" ", "\t", "\n"},
     ",": {" ", "\t", "\n", "alphanum", '"'},
 }
-
-
-
 
 
 

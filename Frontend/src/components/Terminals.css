@@ -145,6 +145,11 @@
   color: #fff;
 }
 
+.error-badge--backend {
+  background: #9b59b6;
+  color: #fff;
+}
+
 .error-message {
   color: #f6e7e7;
   flex: 1;
@@ -161,6 +166,46 @@
   font-weight: 600;
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+.error-location-inline {
+  color: #ffbf80;
+  font-weight: 600;
+}
+
+.error-hint {
+  margin-left: 32px;
+  padding: 8px 12px;
+  background: rgba(52, 152, 219, 0.15);
+  border-left: 3px solid #3498db;
+  border-radius: 4px;
+  color: #85c1e9;
+  font-size: 12px;
+}
+
+.error-context {
+  margin-left: 32px;
+  margin-top: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
+  padding: 12px;
+  border-left: 3px solid #e74c3c;
+}
+
+.error-context pre {
+  margin: 0;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  color: #f6e7e7;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.token-category {
+  color: #f39c12;
+  font-weight: 600;
+  margin-right: 6px;
 }
 
 .term-input-row {

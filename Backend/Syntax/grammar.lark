@@ -1,138 +1,114 @@
-%import common.WS
-%ignore WS
+// =============================================================================
+// GRAMMAR FOR LOVERS LANGUAGE
+// =============================================================================
+// Uses custom Lexer.py for tokenization - terminals declared with %declare
+// Token names match what Lexer.py produces (simplified names)
+// =============================================================================
 
-// Terminal symbols mapped from lexer tokens
-// Keywords (priority 2 to take precedence over IDENTIFIER)
-LOVE.2: "love"
-BOUNDARIES.2: "boundaries"
-CONST.2: "const"
-AVOIDANT.2: "avoidant"
-COMEBACK.2: "comeback"
-DEAR.2: "dear"
-DEAREST.2: "dearest"
-RANT.2: "rant"
-STATUS.2: "status"
-FOREVER.2: "forever"
-FOREVERMORE.2: "forevermore"
-MORE.2: "more"
-CHOOSE.2: "choose"
-PHASE.2: "phase"
-BAREMINIMUM.2: "bareminimum"
-FOR.2: "for"
-WHILE.2: "while"
-PURSUE.2: "pursue"
-BREAKUP.2: "breakup"
-GIVE.2: "give"
-EXPRESS.2: "express"
-OVERSHARE.2: "overshare"
-PERIODT.2: "periodt"
-GREENFLAG.2: "greenflag"
-REDFLAG.2: "redflag"
+// Declare keyword terminals (uppercase to match Lark's terminal naming convention)
+%declare LOVE BOUNDARIES CONST AVOIDANT COMEBACK
+%declare DEAR DEAREST RANT STATUS
+%declare GIVE EXPRESS OVERSHARE
+%declare FOREVER MORE FOREVERMORE
+%declare CHOOSE PHASE BAREMINIMUM
+%declare FOR WHILE PURSUE
+%declare BREAKUP MOVEON
+%declare PERIODT GREENFLAG REDFLAG
 
-// Operators (longer operators first to prevent partial matching)
-PLUS_ASSIGN: "+="
-MINUS_ASSIGN: "-="
-MUL_ASSIGN: "*="
-DIV_ASSIGN: "/="
-MOD_ASSIGN: "%="
-INC: "++"
-DEC: "--"
-EQ: "=="
-NEQ: "!="
-LTE: "<="
-GTE: ">="
-LT: "<"
-GT: ">"
-AND: "&&"
-OR: "||"
-ASSIGN: "="
-PLUS: "+"
-MINUS: "-"
-STAR: "*"
-SLASH: "/"
-PERCENT: "%"
+// Declare operator terminals (match MULTI_CHAR_OPERATORS in Lexer.py)
+%declare OP_PLUS_ASSIGN OP_MINUS_ASSIGN OP_MUL_ASSIGN OP_DIV_ASSIGN OP_MOD_ASSIGN
+%declare OP_INC OP_DEC
+%declare OP_EQ OP_NEQ OP_LTE OP_GTE
+%declare OP_AND OP_OR
+%declare OP_LSHIFT OP_RSHIFT OP_SCOPE
 
-// Symbols (longer symbols first)
-LSHIFT: "<<"
-RSHIFT: ">>"
-SCOPE: "::"
-SEMICOLON: ";"
-COMMA: ","
-LPAREN: "("
-RPAREN: ")"
-LBRACE: "{"
-RBRACE: "}"
-LBRACKET: "["
-RBRACKET: "]"
-COLON: ":"
+// Declare single-char operator terminals (match SINGLE_CHAR_TOKENS in Lexer.py)
+%declare PLUS MINUS STAR SLASH PERCENT ASSIGN GT LT NOT
+%declare LPAREN RPAREN LBRACE RBRACE LBRACKET RBRACKET
+%declare SEMICOLON COMMA COLON DOT
 
-// Literals and identifiers (FLOAT before INT to match longer pattern first)
-// IDENTIFIER excludes all reserved words using negative lookahead
-FLOAT_LITERAL: /-?\d+\.\d+/
-INT_LITERAL: /-?\d+/
-STRING_LITERAL: /"[^"]*"/
-IDENTIFIER: /(?!(love|boundaries|const|avoidant|comeback|dear|dearest|rant|status|forever|forevermore|more|choose|phase|bareminimum|for|while|pursue|breakup|give|express|overshare|periodt|greenflag|redflag|moveon)\b)[a-zA-Z][a-zA-Z0-9_]*/
+// Declare literal terminals (uppercase to match Lark's terminal naming convention)
+%declare ID DEAR_LIT DEAREST_LIT RANT_LIT
 
-// Grammar rules
+// =============================================================================
+// GRAMMAR RULES
+// =============================================================================
+
 start: program
 
+// Program structure: boundaries_opt global_declaration sub_func love () { body_func }
 program: boundaries_opt global_declaration sub_func LOVE LPAREN RPAREN LBRACE body_func RBRACE
 
-boundaries_opt: BOUNDARIES IDENTIFIER LBRACE global_declaration sub_func RBRACE
+// Optional boundaries (namespace)
+boundaries_opt: BOUNDARIES ID LBRACE global_declaration sub_func RBRACE
               | 
 
+// Global declarations
 global_declaration: declaration global_declaration
                   | 
 
-declaration: data_type IDENTIFIER array_decl var_initial multi_decl SEMICOLON
-           | data_type IDENTIFIER SEMICOLON
-           | const_decl data_type IDENTIFIER ASSIGN expr SEMICOLON
+// Variable declaration
+declaration: data_type ID array_decl var_initial multi_decl SEMICOLON
+           | data_type ID SEMICOLON
+           | const_decl data_type ID ASSIGN expr SEMICOLON
 
-multi_decl: COMMA IDENTIFIER array_decl var_initial multi_decl
+// Multiple variable declarations
+multi_decl: COMMA ID array_decl var_initial multi_decl
           | 
 
+// Const modifier
 const_decl: CONST
           | 
 
+// Variable initialization
 var_initial: ASSIGN expr
-           | init_value
+           | ASSIGN init_value
            | 
 
+// Initial value (for arrays)
 init_value: expr
           | LBRACE array_lit_list RBRACE
 
+// Array literal list
 array_lit_list: init_value more_array_lit
 
 more_array_lit: COMMA init_value more_array_lit
               | 
 
+// Data types: dear (int), dearest (float), rant (string), status (bool)
 data_type: DEAR
          | DEAREST
          | RANT
          | STATUS
 
+// Return type for functions
 return_type: data_type
 
+// Function parameters
 parameter: function_parameter multi_parameter
          | 
 
-function_parameter: data_type IDENTIFIER array_decl
+function_parameter: data_type ID array_decl
 
 multi_parameter: COMMA function_parameter multi_parameter
                | 
 
-sub_func: return_type IDENTIFIER LPAREN parameter RPAREN LBRACE body_func RBRACE sub_func
-        | AVOIDANT IDENTIFIER LPAREN parameter RPAREN LBRACE body_func RBRACE sub_func
+// Sub functions
+sub_func: return_type ID LPAREN parameter RPAREN LBRACE body_func RBRACE sub_func
+        | AVOIDANT ID LPAREN parameter RPAREN LBRACE body_func RBRACE sub_func
         | 
 
+// Function body
 body_func: local_decl_list statements
 
+// Local declarations
 local_decl_list: local_decl local_decl_list
                | 
 
-local_decl: data_type IDENTIFIER array_decl var_initial multi_decl SEMICOLON
+local_decl: data_type ID array_decl var_initial multi_decl SEMICOLON
 
-statements: IDENTIFIER id_suffix statements
+// Statements
+statements: ID id_suffix statements
           | input_state statements
           | output_state statements
           | conditional_state statements
@@ -142,57 +118,69 @@ statements: IDENTIFIER id_suffix statements
           | unary_state statements
           | 
 
+// Identifier suffix (assignment, function call, unary)
 id_suffix: index_array assign_ops assign_values SEMICOLON
          | assign_ops assign_values SEMICOLON
          | LPAREN arguments RPAREN SEMICOLON
          | unary_ops SEMICOLON
 
-unary_state: unary_ops IDENTIFIER SEMICOLON
+// Unary statement (++x, --x)
+unary_state: unary_ops ID SEMICOLON
 
-unary_ops: INC
-         | DEC
+// Unary operators
+unary_ops: OP_INC
+         | OP_DEC
 
+// Function arguments
 arguments: expr more_arguments
          | 
 
 more_arguments: COMMA expr more_arguments
               | 
 
+// Assignment operators
 assign_ops: ASSIGN
-          | PLUS_ASSIGN
-          | MINUS_ASSIGN
-          | MUL_ASSIGN
-          | DIV_ASSIGN
-          | MOD_ASSIGN
+          | OP_PLUS_ASSIGN
+          | OP_MINUS_ASSIGN
+          | OP_MUL_ASSIGN
+          | OP_DIV_ASSIGN
+          | OP_MOD_ASSIGN
 
+// Assignment value
 assign_values: expr
 
-input_state: GIVE RSHIFT IDENTIFIER SEMICOLON
-           | OVERSHARE LPAREN IDENTIFIER RPAREN SEMICOLON
+// Input: give >> variable ; or overshare(variable) ;
+input_state: GIVE OP_RSHIFT ID SEMICOLON
+           | OVERSHARE LPAREN ID RPAREN SEMICOLON
 
+// Output: express << value ;
 output_state: EXPRESS more_output SEMICOLON
 
-more_output: LSHIFT output_values more_output_tail
+more_output: OP_LSHIFT output_values more_output_tail
 
-more_output_tail: LSHIFT output_values more_output_tail
-                |
+more_output_tail: OP_LSHIFT output_values more_output_tail
+                | 
 
 output_values: expr
              | PERIODT
 
+// Return: comeback value ;
 comeback_state: COMEBACK expr_opt SEMICOLON
 
+// Expressions
 expr: log_expr
 
 expr_opt: expr
         | 
 
+// Arithmetic expression
 expr_ar: term expr_next
 
 expr_next: PLUS term expr_next
          | MINUS term expr_next
          | 
 
+// Term
 term: factor term_next
 
 term_next: STAR factor term_next
@@ -200,39 +188,48 @@ term_next: STAR factor term_next
          | PERCENT factor term_next
          | 
 
+// Factor
 factor: LPAREN expr RPAREN
       | func_call
-      | IDENTIFIER
-      | INT_LITERAL
-      | FLOAT_LITERAL
-      | STRING_LITERAL
+      | ID
+      | DEAR_LIT
+      | DEAREST_LIT
+      | RANT_LIT
       | status_lit
 
+// Literal terminals are now declared directly in %declare above
+
+// Boolean literals
 status_lit: GREENFLAG
           | REDFLAG
 
+// Relational expression
 rel_expr: expr_ar rel_next
 
 rel_next: rel_op expr_ar rel_next
         | 
 
-rel_op: EQ
-      | NEQ
+// Relational operators
+rel_op: OP_EQ
+      | OP_NEQ
       | LT
-      | LTE
+      | OP_LTE
       | GT
-      | GTE
+      | OP_GTE
 
+// Logical expression
 log_expr: and_expr log_next
 
-log_next: OR and_expr log_next
+log_next: OP_OR and_expr log_next
         | 
 
+// AND expression
 and_expr: rel_expr and_next
 
-and_next: AND rel_expr and_next
+and_next: OP_AND rel_expr and_next
         | 
 
+// Conditional: forever (if), forevermore (else if), more (else)
 conditional_state: FOREVER LPAREN expr RPAREN LBRACE body_func RBRACE forevermore_lst more_opt
 
 forevermore_lst: FOREVERMORE LPAREN expr RPAREN LBRACE body_func RBRACE forevermore_lst
@@ -241,23 +238,28 @@ forevermore_lst: FOREVERMORE LPAREN expr RPAREN LBRACE body_func RBRACE foreverm
 more_opt: MORE LBRACE body_func RBRACE
         | 
 
+// Loops
 loop_state: pursue_stmt
           | while_stmt
           | for_stmt
 
+// pursue (do-while)
 pursue_stmt: PURSUE LPAREN expr RPAREN LBRACE body_func RBRACE
 
+// while loop
 while_stmt: WHILE LPAREN expr RPAREN LBRACE body_func RBRACE
 
+// for loop
 for_stmt: FOR LPAREN for_init SEMICOLON expr SEMICOLON for_ud RPAREN LBRACE body_func RBRACE
 
-for_init: data_type IDENTIFIER ASSIGN expr
-        | IDENTIFIER ASSIGN expr
+for_init: data_type ID ASSIGN expr
+        | ID ASSIGN expr
 
-for_ud: IDENTIFIER assign_ops expr
-      | IDENTIFIER unary_ops
-      | unary_ops IDENTIFIER
+for_ud: ID assign_ops expr
+      | ID unary_ops
+      | unary_ops ID
 
+// Switch: choose, phase (case), bareminimum (default)
 choose_state: CHOOSE LPAREN expr RPAREN LBRACE phase_lst bareminimum_opt RBRACE
 
 phase_lst: PHASE choose_const COLON body_func BREAKUP SEMICOLON phase_lst_next
@@ -265,19 +267,30 @@ phase_lst: PHASE choose_const COLON body_func BREAKUP SEMICOLON phase_lst_next
 phase_lst_next: phase_lst
               | 
 
-choose_const: INT_LITERAL
-            | STRING_LITERAL
+choose_const: num_lit
+            | string_lit
+
+// For choose_const: num_lit accepts both integer and float
+num_lit: DEAR_LIT
+       | DEAREST_LIT
+
+// For choose_const: string_lit is RANT_LIT
+string_lit: RANT_LIT
 
 bareminimum_opt: BAREMINIMUM COLON body_func BREAKUP SEMICOLON
                | 
 
-func_call: IDENTIFIER boundaries_suffix LPAREN arguments RPAREN
+// Function call with optional namespace
+func_call: ID boundaries_suffix LPAREN arguments RPAREN
 
-boundaries_suffix: SCOPE IDENTIFIER
+boundaries_suffix: OP_SCOPE ID
                  | 
 
+// Array declaration
 array_decl: LBRACKET RBRACKET array_decl
           | 
 
+// Array indexing
 index_array: LBRACKET expr_ar RBRACKET index_array
-           |
+           | 
+

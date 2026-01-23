@@ -1,16 +1,22 @@
 # Backend/Syntax/Parser.py
-"""Syntax analyzer using Lark parser for the Lovers language."""
+"""Syntax analyzer using Lark parser with custom Lexer.py for the Lovers language."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import List, Optional, Tuple
 from lark import Lark, Tree, UnexpectedInput, UnexpectedToken, UnexpectedCharacters
-from Backend.Syntax.errors import SyntaxError, format_syntax_error
+from Backend.Syntax.errors import (
+    SyntaxError, 
+    format_syntax_error, 
+    convert_tokens_to_readable
+)
+from Backend.Syntax.custom_lexer import CustomLarkLexer
+from Backend.Syntax.token_map import TOKEN_DISPLAY_NAME
 
 
 class Parser:
-    """Lark-based parser for the Lovers programming language."""
+    """Lark-based parser using custom Lexer.py for the Lovers programming language."""
 
     # Reserved words that cannot be used as identifiers
     RESERVED_WORDS = {
@@ -22,7 +28,7 @@ class Parser:
     }
 
     def __init__(self):
-        """Initialize the parser by loading the grammar file."""
+        """Initialize the parser by loading the grammar file with custom lexer."""
         grammar_path = Path(__file__).parent / "grammar.lark"
         grammar_text = grammar_path.read_text(encoding="utf-8")
         
@@ -30,18 +36,16 @@ class Parser:
             grammar_text,
             start='start',
             parser='earley',
-            ambiguity='resolve',  # Resolve ambiguity - prefer keywords over identifiers
-            propagate_positions=True,  # Enables line/column tracking in tree nodes
+            lexer=CustomLarkLexer,  # Use our custom Lexer.py
+            ambiguity='resolve',
+            propagate_positions=True,
         )
     
     def _is_reserved_word(self, token_str: str) -> bool:
         """Check if a token value is a reserved word."""
-        # Extract the actual value from token string (e.g., "Token('LOVE', 'love')" -> "love")
         token_lower = token_str.lower().strip()
-        # Direct match
         if token_lower in self.RESERVED_WORDS:
             return True
-        # Check if token contains a reserved word
         for word in self.RESERVED_WORDS:
             if word in token_lower:
                 return True
@@ -49,14 +53,15 @@ class Parser:
     
     def _get_reserved_word_message(self, token: str, expected: list) -> str:
         """Generate helpful message when reserved word is used incorrectly."""
-        # Extract the actual word from token
-        token_lower = str(token).lower()
-        for word in self.RESERVED_WORDS:
-            if word in token_lower:
-                if "IDENTIFIER" in expected or not expected:
-                    return f"Reserved word '{word}' cannot be used as an identifier or variable name"
-                else:
-                    return f"Reserved word '{word}' cannot be used here"
+        token_lower = str(token).lower().strip()
+        # Only check for exact matches to avoid false positives
+        # (e.g., "love" in "lover" should not trigger an error)
+        if token_lower in self.RESERVED_WORDS:
+            # Check for ID (new grammar terminal) or IDENTIFIER (old name) or "identifier" (readable format)
+            if "ID" in expected or "IDENTIFIER" in expected or "identifier" in expected or not expected:
+                return f"Reserved word '{token_lower}' cannot be used as an identifier or variable name"
+            else:
+                return f"Reserved word '{token_lower}' cannot be used here"
         return None
 
     def parse(self, source: str) -> Tree:
@@ -75,19 +80,28 @@ class Parser:
         try:
             return self.parser.parse(source)
         except UnexpectedToken as e:
+            expected_raw = list(e.expected) if e.expected else []
+            token_str = str(e.token)
+            # Convert expected tokens to readable format
+            expected_readable = convert_tokens_to_readable(expected_raw)
+            # Create a more helpful message
+            message = f"Unexpected token '{token_str}'"
             raise SyntaxError(
-                message=f"Unexpected token '{e.token}' at line {e.line}, column {e.column}",
+                message=message,
                 line=e.line,
                 column=e.column,
-                expected=list(e.expected) if e.expected else [],
-                found=str(e.token),
+                expected=expected_readable,  # Pass readable tokens for error formatting
+                found=token_str,
             ) from e
         except UnexpectedCharacters as e:
+            expected_raw = list(e.allowed) if e.allowed else []
+            # Convert expected tokens to readable format
+            expected_readable = convert_tokens_to_readable(expected_raw)
             raise SyntaxError(
                 message=f"Unexpected character '{e.char}' at line {e.line}, column {e.column}",
                 line=e.line,
                 column=e.column,
-                expected=list(e.allowed) if e.allowed else [],
+                expected=expected_readable,
                 found=e.char,
             ) from e
         except UnexpectedInput as e:
@@ -117,10 +131,12 @@ class Parser:
             return tree, errors
         except UnexpectedToken as e:
             token_str = str(e.token)
-            expected_list = list(e.expected) if e.expected else []
+            expected_raw = list(e.expected) if e.expected else []
+            # Convert expected tokens to readable format
+            expected_readable = convert_tokens_to_readable(expected_raw)
             
             # Check if a reserved word was used incorrectly
-            reserved_msg = self._get_reserved_word_message(token_str, expected_list)
+            reserved_msg = self._get_reserved_word_message(token_str, expected_raw)
             if reserved_msg:
                 message = reserved_msg
             else:
@@ -130,43 +146,72 @@ class Parser:
                 message=message,
                 line=e.line,
                 column=e.column,
-                expected=expected_list,
+                expected=expected_readable,  # Pass readable tokens for error formatting
                 found=token_str,
             ))
         except UnexpectedCharacters as e:
-            expected_list = list(e.allowed) if e.allowed else []
+            expected_raw = list(e.allowed) if e.allowed else []
+            import re
             
             # Check if this looks like a reserved word being used as identifier
-            # Get the remaining text from this position to check for reserved words
-            remaining = source[e.pos_in_stream:] if hasattr(e, 'pos_in_stream') else ""
-            word_match = None
-            import re
-            word_pattern = re.match(r'([a-zA-Z][a-zA-Z0-9_]*)', remaining)
-            if word_pattern:
-                word = word_pattern.group(1).lower()
-                if word in self.RESERVED_WORDS and "IDENTIFIER" in expected_list:
-                    errors.append(SyntaxError(
-                        message=f"Reserved word '{word}' cannot be used as an identifier or variable name",
-                        line=e.line,
-                        column=e.column,
-                        expected=expected_list,
-                        found=word,
-                    ))
-                    return None, errors
+            # Only check if we have position information and ID (or IDENTIFIER) is expected
+            if hasattr(e, 'pos_in_stream') and ("ID" in expected_raw or "IDENTIFIER" in expected_raw):
+                # Get the character at the error position
+                if e.pos_in_stream < len(source):
+                    # Look for a word starting at the error position
+                    remaining = source[e.pos_in_stream:]
+                    word_pattern = re.match(r'([a-zA-Z][a-zA-Z0-9_]*)', remaining)
+                    if word_pattern:
+                        word = word_pattern.group(1).lower()
+                        # Only flag if it's an EXACT match with a reserved word (not substring)
+                        # This prevents false positives like "love" in "lover"
+                        if word in self.RESERVED_WORDS:
+                            # Convert expected tokens to readable format
+                            expected_readable = convert_tokens_to_readable(expected_raw)
+                            errors.append(SyntaxError(
+                                message=f"Reserved word '{word}' cannot be used as an identifier or variable name",
+                                line=e.line,
+                                column=e.column,
+                                expected=expected_readable,
+                                found=word,
+                            ))
+                            return None, errors
             
+            # Check for incomplete keyword
+            if hasattr(e, 'pos_in_stream'):
+                before_text = source[:e.pos_in_stream].rstrip()
+                ident_match = re.search(r'([a-zA-Z][a-zA-Z0-9_]*)\s*$', before_text)
+                if ident_match:
+                    incomplete = ident_match.group(1).lower()
+                    for keyword in self.RESERVED_WORDS:
+                        if keyword.startswith(incomplete) and incomplete != keyword and len(incomplete) >= 2:
+                            text_before_ident = before_text[:ident_match.start()]
+                            ident_line = text_before_ident.count('\n') + 1
+                            last_newline = text_before_ident.rfind('\n')
+                            ident_col = len(text_before_ident) - last_newline if last_newline >= 0 else len(text_before_ident) + 1
+                            
+                            errors.append(SyntaxError(
+                                message=f"Incomplete keyword '{incomplete}'. Did you mean '{keyword}'?",
+                                line=ident_line,
+                                column=ident_col,
+                                expected=[keyword],
+                                found=incomplete,
+                            ))
+                            return None, errors
+            
+            # Convert expected tokens to readable format
+            expected_readable = convert_tokens_to_readable(expected_raw)
             errors.append(SyntaxError(
                 message=f"Unexpected character '{e.char}'",
                 line=e.line,
                 column=e.column,
-                expected=expected_list,
+                expected=expected_readable,
                 found=e.char,
             ))
         except UnexpectedInput as e:
-            # Try to extract more info from the exception
             line = getattr(e, 'line', -1)
             column = getattr(e, 'column', -1)
             
-            # Check if there's token info in the exception
             token_info = getattr(e, 'token', None)
             if token_info:
                 token_str = str(token_info)
@@ -196,7 +241,6 @@ class Parser:
                     found="",
                 ))
         except Exception as e:
-            # Catch-all for any other parsing errors
             errors.append(SyntaxError(
                 message=str(e),
                 line=1,
@@ -208,15 +252,7 @@ class Parser:
         return None, errors
 
     def get_tree_string(self, tree: Tree) -> str:
-        """
-        Get a pretty-printed string representation of the parse tree.
-        
-        Args:
-            tree: The parse tree to format.
-            
-        Returns:
-            A formatted string showing the tree structure.
-        """
+        """Get a pretty-printed string representation of the parse tree."""
         return tree.pretty()
 
 

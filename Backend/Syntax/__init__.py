@@ -10,7 +10,6 @@ from Backend.Syntax.Parser import (
 from Backend.Syntax.errors import (
     SyntaxError,
     format_syntax_error,
-    format_expected_tokens,
     create_error_context,
 )
 
@@ -23,6 +22,5 @@ __all__ = [
     # Errors
     "SyntaxError",
     "format_syntax_error",
-    "format_expected_tokens",
     "create_error_context",
 ]

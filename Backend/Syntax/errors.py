@@ -6,6 +6,9 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from typing import List, Optional
 
+# Import TOKEN_DISPLAY_NAME for token name conversion
+from Backend.Syntax.token_map import TOKEN_DISPLAY_NAME
+
 
 @dataclass
 class SyntaxError(Exception):
@@ -28,6 +31,7 @@ class SyntaxError(Exception):
     def __str__(self) -> str:
         """Return a formatted error message."""
         return format_syntax_error(self)
+    
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -36,34 +40,183 @@ class SyntaxError(Exception):
 
 def format_syntax_error(error: SyntaxError) -> str:
     """
-    Format a syntax error into a human-readable string.
+    Format a syntax error into a human-readable string with helpful suggestions.
     
     Args:
         error: The SyntaxError to format.
         
     Returns:
-        A formatted error string.
+        A formatted error string with context and suggestions.
     """
-    lines = [f"Syntax error at line {error.line}, column {error.column}"]
-    lines.append(f"  {error.message}")
+    lines = []
     
+    # Main error message
+    lines.append(f"Syntax error at line {error.line}, column {error.column}")
+    lines.append("")
+    
+    # Enhanced error description
+    enhanced_message = enhance_error_message(error)
+    lines.append(f"  {enhanced_message}")
+    lines.append("")
+    
+    # What was found
     if error.found:
-        lines.append(f"  Found: {error.found}")
+        found_display = format_token_display(error.found)
+        lines.append(f"  Found: {found_display}")
     
+    # What was expected
     if error.expected:
-        # Format expected tokens nicely
-        expected_formatted = format_expected_tokens(error.expected)
+        # Convert token names to readable symbols first (handles both raw and already-readable tokens)
+        readable_tokens = convert_tokens_to_readable(error.expected)
+        # Then format them into a string
+        expected_formatted = format_expected_tokens_string(readable_tokens)
         lines.append(f"  Expected: {expected_formatted}")
     
     return "\n".join(lines)
 
 
-def format_expected_tokens(expected: List[str]) -> str:
+def convert_tokens_to_readable(tokens: List[str]) -> List[str]:
     """
-    Format a list of expected tokens into a readable string.
+    Convert internal token names to human-readable symbols.
+    Idempotent: can be called multiple times safely.
+    Removes duplicates and normalizes quoted/unquoted tokens.
     
     Args:
-        expected: List of expected token names.
+        tokens: List of token names from Lark (e.g., ["ASSIGN", "SEMICOLON", "love", "ID", "DEAR_LIT"])
+               or already-readable tokens (e.g., ["'='", "';'", "love", "identifier"])
+        
+    Returns:
+        List of readable symbols (e.g., ["'='", "';'", "love", "identifier", "integer literal"])
+    """
+    # Mapping for new grammar terminals to readable names
+    terminal_to_readable = {
+        "ID": "identifier",
+        "DEAR_LIT": "integer literal",
+        "DEAREST_LIT": "float literal",
+        "RANT_LIT": "string literal",
+    }
+    
+    result = []
+    seen_normalized = set()  # Track normalized tokens to avoid duplicates
+    
+    for token in tokens:
+        # Skip empty tokens
+        if not token or not token.strip():
+            continue
+            
+        converted = None
+        
+        # If token is already in readable format (starts with quote or is a readable word), use as-is
+        if (token.startswith("'") or token.startswith('"') or 
+            token in ["identifier", "integer literal", "float literal", "string literal"]):
+            converted = token
+        # Check if it's a new grammar terminal
+        elif token in terminal_to_readable:
+            converted = terminal_to_readable[token]
+        # If lowercase keyword, it's already readable - return as-is
+        elif token.islower() and token in TOKEN_DISPLAY_NAME:
+            converted = token
+        # Otherwise use TOKEN_DISPLAY_NAME mapping (for operators/delimiters)
+        else:
+            converted = TOKEN_DISPLAY_NAME.get(token, token)
+        
+        # Normalize: remove quotes for comparison to avoid duplicates
+        # e.g., both "COMMA" -> "," and "," should be treated as the same
+        # Also handle cases where we get both quoted and unquoted versions
+        if converted.startswith("'") or converted.startswith('"'):
+            normalized = converted.strip("'\"")
+            # For single-character symbols, prefer unquoted format for cleaner display
+            if len(normalized) == 1:
+                converted = normalized
+        else:
+            normalized = converted
+        
+        # Only add if we haven't seen this normalized token before
+        if normalized not in seen_normalized:
+            seen_normalized.add(normalized)
+            result.append(converted)
+    
+    return result
+
+
+def format_token_display(token: str) -> str:
+    """Format a token for display in error messages."""
+    # Remove quotes if present
+    token = token.strip("'\"")
+    
+    # Map common tokens to readable names (including new grammar terminals)
+    token_display_map = {
+        "INT_LIT": "integer literal",
+        "FLOAT_LIT": "float literal", 
+        "STRING_LIT": "string literal",
+        "IDENTIFIER": "identifier",
+        # New grammar terminals
+        "ID": "identifier",
+        "DEAR_LIT": "integer literal",
+        "DEAREST_LIT": "float literal",
+        "RANT_LIT": "string literal",
+    }
+    
+    if token in token_display_map:
+        return token_display_map[token]
+    return f"'{token}'"
+
+
+def enhance_error_message(error: SyntaxError) -> str:
+    """
+    Enhance error message with contextual information and helpful hints.
+    
+    Args:
+        error: The SyntaxError to enhance.
+        
+    Returns:
+        An enhanced error message string.
+    """
+    found = error.found.strip("'\"") if error.found else ""
+    expected = error.expected or []
+    
+    # Convert expected to readable format for consistent checking
+    expected_readable = convert_tokens_to_readable(expected)
+    expected_set = set(str(e).lower() for e in expected_readable)
+    found_clean = found.strip("'\"") if found else ""
+    
+    # Missing assignment operator (most common issue)
+    if "=" in expected_set and found_clean and found_clean != "=":
+        # Check if found is a literal value (number or string)
+        is_literal = (
+            found_clean.isdigit() or 
+            (found_clean.replace(".", "").replace("-", "").isdigit()) or
+            "integer literal" in found_clean.lower() or
+            "float literal" in found_clean.lower() or
+            "string literal" in found_clean.lower() or
+            found_clean.startswith('"') or found_clean.startswith("'")
+        )
+        if is_literal:
+            return f"Missing assignment operator '=' before value. Use: variable = {found_clean};"
+        return "Missing assignment operator '='. Use: variable = value;"
+    
+    # Variable declaration patterns
+    if any(dt in expected_set for dt in ["dear", "dearest", "rant", "status"]):
+        if "=" in expected_set:
+            return "Incomplete variable declaration. Expected: type identifier = value"
+        return "Incomplete variable declaration. Expected: type identifier"
+    
+    # Function call patterns
+    if "arguments" in " ".join(expected_readable).lower():
+        return "Invalid function call syntax. Expected: function_name(arguments)"
+    
+    # Default message
+    if error.message:
+        return error.message
+    return "Unexpected syntax at this location"
+
+
+def format_expected_tokens_string(expected: List[str]) -> str:
+    """
+    Format a list of expected tokens (already converted to readable symbols) into a readable string.
+    
+    Args:
+        expected: List of readable token symbols (e.g., ["'='", "';'", "identifier"]).
         
     Returns:
         A formatted string of expected tokens.
@@ -71,98 +224,8 @@ def format_expected_tokens(expected: List[str]) -> str:
     if not expected:
         return "unknown"
     
-    # Map internal token names to human-readable names
-    token_names = {
-        # Keywords
-        "LOVE": "'love'",
-        "BOUNDARIES": "'boundaries'",
-        "CONST": "'const'",
-        "AVOIDANT": "'avoidant'",
-        "COMEBACK": "'comeback'",
-        "DEAR": "'dear'",
-        "DEAREST": "'dearest'",
-        "RANT": "'rant'",
-        "STATUS": "'status'",
-        "FOREVER": "'forever'",
-        "FOREVERMORE": "'forevermore'",
-        "MORE": "'more'",
-        "CHOOSE": "'choose'",
-        "PHASE": "'phase'",
-        "BAREMINIMUM": "'bareminimum'",
-        "FOR": "'for'",
-        "WHILE": "'while'",
-        "PURSUE": "'pursue'",
-        "BREAKUP": "'breakup'",
-        "GIVE": "'give'",
-        "EXPRESS": "'express'",
-        "OVERSHARE": "'overshare'",
-        "PERIODT": "'periodt'",
-        "GREENFLAG": "'greenflag'",
-        "REDFLAG": "'redflag'",
-        
-        # Operators
-        "ASSIGN": "'='",
-        "PLUS_ASSIGN": "'+='",
-        "MINUS_ASSIGN": "'-='",
-        "MUL_ASSIGN": "'*='",
-        "DIV_ASSIGN": "'/='",
-        "MOD_ASSIGN": "'%='",
-        "INC": "'++'",
-        "DEC": "'--'",
-        "EQ": "'=='",
-        "NEQ": "'!='",
-        "LT": "'<'",
-        "LTE": "'<='",
-        "GT": "'>'",
-        "GTE": "'>='",
-        "AND": "'&&'",
-        "OR": "'||'",
-        "PLUS": "'+'",
-        "MINUS": "'-'",
-        "STAR": "'*'",
-        "SLASH": "'/'",
-        "PERCENT": "'%'",
-        
-        # Symbols
-        "SEMICOLON": "';'",
-        "COMMA": "','",
-        "LPAREN": "'('",
-        "RPAREN": "')'",
-        "LBRACE": "'{'",
-        "RBRACE": "'}'",
-        "LBRACKET": "'['",
-        "RBRACKET": "']'",
-        "COLON": "':'",
-        "DOT": "'.'",
-        "SCOPE": "'::'",
-        "LSHIFT": "'<<'",
-        "RSHIFT": "'>>'",
-        
-        # Literals
-        "IDENTIFIER": "identifier",
-        "INT_LITERAL": "integer literal",
-        "FLOAT_LITERAL": "float literal",
-        "STRING_LITERAL": "string literal",
-    }
-    
-    # Convert tokens to readable names
-    readable = []
-    for token in expected:
-        if token in token_names:
-            readable.append(token_names[token])
-        elif token.startswith("__"):
-            # Skip internal rules
-            continue
-        else:
-            readable.append(token)
-    
     # Remove duplicates while preserving order
-    seen = set()
-    unique = []
-    for item in readable:
-        if item not in seen:
-            seen.add(item)
-            unique.append(item)
+    unique = list(dict.fromkeys(expected))
     
     if len(unique) == 0:
         return "unknown"

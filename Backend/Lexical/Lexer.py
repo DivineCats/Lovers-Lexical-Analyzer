@@ -12,83 +12,10 @@ from Backend.Syntax.token_map import (
     expanded_reserved_symbol_follows,
     expanded_int_lit,
     expanded_string_lit,
+    TOKEN_DISPLAY_NAME,
+    MULTI_CHAR_OPERATORS,
+    SINGLE_CHAR_TOKENS,
 )
-
-RESERVED_WORDS = {
-    "give": ("KEYWORD_IO_GIVE", "give"),
-    "express": ("KEYWORD_IO_EXPRESS", "express"),
-    "overshare": ("KEYWORD_IO_OVERSHARE", "overshare"),
-    "dear": ("KEYWORD_TYPE_INT", "dear"),
-    "dearest": ("KEYWORD_TYPE_FLOAT", "dearest"),
-    "rant": ("KEYWORD_TYPE_STRING", "rant"),
-    "status": ("KEYWORD_TYPE_BOOL", "status"),
-    "forever": ("KEYWORD_IF", "forever"),
-    "more": ("KEYWORD_ELSE", "more"),
-    "forevermore": ("KEYWORD_ELSEIF", "forevermore"),
-    "choose": ("KEYWORD_SWITCH", "choose"),
-    "phase": ("KEYWORD_CASE", "phase"),
-    "bareminimum": ("KEYWORD_DEFAULT", "bareminimum"),
-    "for": ("KEYWORD_FOR", "for"),
-    "while": ("KEYWORD_WHILE", "while"),
-    "pursue": ("KEYWORD_DO_WHILE", "pursue"),
-    "breakup": ("KEYWORD_BREAK", "breakup"),
-    "moveon": ("KEYWORD_CONTINUE", "moveon"),
-    "love": ("KEYWORD_MAIN", "love"),
-    "periodt": ("KEYWORD_ENDL", "periodt"),
-    "const": ("KEYWORD_CONST", "const"),
-    "redflag": ("BOOL_LITERAL_FALSE", "redflag"),
-    "greenflag": ("BOOL_LITERAL_TRUE", "greenflag"),
-    "boundaries": ("KEYWORD_NAMESPACE", "boundaries"),
-    "comeback": ("KEYWORD_RETURN", "comeback"),
-    "avoidant": ("KEYWORD_VOID", "avoidant"),
-}
-
-
-MULTI_CHAR_OPERATORS = {
-    "==": "OP_EQ",
-    "!=": "OP_NEQ",
-    ">=": "OP_GTE",
-    "<=": "OP_LTE",
-    ">>": "OP_RSHIFT",
-    "<<": "OP_LSHIFT",
-    "&&": "OP_AND",
-    "||": "OP_OR",
-    "++": "OP_INC",
-    "--": "OP_DEC",
-    "+=": "OP_PLUS_ASSIGN",
-    "-=": "OP_MINUS_ASSIGN",
-    "*=": "OP_MUL_ASSIGN",
-    "/=": "OP_DIV_ASSIGN",
-    "%=": "OP_MOD_ASSIGN",
-    "::": "OP_SCOPE",
-    "->": "OP_ARROW",
-}
-
-SINGLE_CHAR_TOKENS = {
-    ";": "SEMICOLON",
-    ",": "COMMA",
-    "(": "LPAREN",
-    ")": "RPAREN",
-    "{": "LBRACE",
-    "}": "RBRACE",
-    "[": "LBRACKET",
-    "]": "RBRACKET",
-    ":": "COLON",
-    ".": "DOT",
-    "+": "PLUS",
-    "-": "MINUS",
-    "*": "STAR",
-    "/": "SLASH",
-    "%": "PERCENT",
-    "=": "ASSIGN",
-    ">": "GT",
-    "<": "LT",
-    "!": "NOT",
-    "|": "BIT OR",
-}
-
-
-TOKEN_TYPE_OVERRIDES: dict = {}
 
 IDENTIFIER_DELIMS = expanded_identifier_follows.get("identifier", set())
 NUMBER_DELIMS = expanded_int_lit.get("int_lit", set())
@@ -97,7 +24,6 @@ ALPHA = Literals["alphabet"]
 DIGIT = Literals["digit"]
 ALNUM = Literals["alphanum"]
 WHITESPACE = {" ", "\t", "\n"}
-DISALLOWED_IDENTIFIERS: set[str] = set()
 # Disallow only symbols that should never appear immediately after an identifier.
 BAD_SYMBOLS_AFTER_IDENTIFIER = set("!@#$^\\?~")
 IDENT_FOLLOW_CHARS = IDENTIFIER_DELIMS or WHITESPACE
@@ -114,7 +40,16 @@ class Token:
     literal: Optional[str] = None
     line: int = 1
     column: int = 1
-    cpp_equivalent: Optional[str] = None
+
+    @property
+    def token(self) -> str:
+        """Get the simplified display token name (Token column - lowercase keyword)."""
+        # Token kinds now match grammar terminals directly (id, dear_lit, dearest_lit, rant_lit)
+        # If kind is already lowercase (keyword or grammar terminal), return it directly
+        if self.kind.islower() and self.kind in TOKEN_DISPLAY_NAME:
+            return self.kind
+        # Otherwise use TOKEN_DISPLAY_NAME mapping
+        return TOKEN_DISPLAY_NAME.get(self.kind, self.kind.lower())
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -207,8 +142,8 @@ class Lexer:
             # Otherwise it's subtraction: 1-3 => 1, -, 3
             prev_token = tokens[-1] if tokens else None
             is_subtraction = prev_token and prev_token.kind in {
-                "INT_LITERAL", "FLOAT_LITERAL", "IDENTIFIER", "RPAREN", "RBRACKET",
-                "BOOL_LITERAL_TRUE", "BOOL_LITERAL_FALSE", "OP_INC", "OP_DEC"
+                "dear_lit", "dearest_lit", "id", "RPAREN", "RBRACKET",
+                "greenflag", "redflag", "OP_INC", "OP_DEC"
             }
             if not is_subtraction:
                 # Negative number literal
@@ -290,17 +225,18 @@ class Lexer:
             allowed = expanded_reserved_word_follows.get(lexeme, IDENT_FOLLOW_CHARS)
             if nxt not in allowed:
                 raise LexerError(
-                    f"Reserved word `{lexeme}` must be followed by a valid delimiter at {self.line}:{self.column}\n\nExpected delimiter: {self._format_expected_readable(allowed)}",
+                    f"Reserved word `{lexeme}` must be followed by a valid delimiter at {self.line}:{self.column}\n\nExpected delimiter: {self._format_expected(allowed)}",
                     self._partial_tokens,
                 )
-            kind, cpp_equiv = keyword_result
-            literal = cpp_equiv if kind.startswith("BOOL_LITERAL") else None
+            kind, _ = keyword_result
+            literal = None
+            if kind in {"greenflag", "redflag"}:
+                literal = "true" if kind == "greenflag" else "false"
             return Token(kind=kind,
                          lexeme=lexeme,
                          literal=literal,
                          line=line,
-                         column=col,
-                         cpp_equivalent=cpp_equiv)
+                         column=col)
         
         # It's a regular identifier - validate delimiter
         # Special-case single ampersand so users get a clear hint to use '&&'.
@@ -316,17 +252,17 @@ class Lexer:
                 pass  # allow '||'
             else:
                 raise LexerError(
-                    f"Invalid delimiter after identifier `{lexeme}` at {self.line}:{self.column}\n\nExpected: {self._format_expected(IDENT_FOLLOW_CHARS)}",
+                    f"Invalid delimiter after identifier `{lexeme}` at {self.line}:{self.column}\n\nExpected delimiter: {self._format_expected(IDENT_FOLLOW_CHARS)}",
                     self._partial_tokens,
                 )
         
         allowed = expanded_identifier_follows.get("identifier", IDENT_FOLLOW_CHARS)
         if nxt not in allowed:
             raise LexerError(
-                f"Invalid delimiter after identifier `{lexeme}` at {self.line}:{self.column}\n\nExpected: {self._format_expected(allowed)}",
+                f"Invalid delimiter after identifier `{lexeme}` at {self.line}:{self.column}\n\nExpected delimiter: {self._format_expected(allowed)}",
                 self._partial_tokens,
             )
-        return Token("IDENTIFIER", lexeme, line=line, column=col)
+        return Token("id", lexeme, line=line, column=col)
 
     def _identifier_continuation_token(self, line: int, col: int) -> Token:
         """Continue scanning from 21st+ char after exceeding identifier limit."""
@@ -351,14 +287,15 @@ class Lexer:
             allowed = expanded_identifier_follows.get("identifier", IDENT_FOLLOW_CHARS)
             if nxt not in allowed:
                 raise LexerError(
-                    f"Invalid delimiter after identifier `{lexeme}` at {self.line}:{self.column}\n\nExpected: {self._format_expected(allowed)}",
+                    f"Invalid delimiter after identifier `{lexeme}` at {self.line}:{self.column}\n\nExpected delimiter: {self._format_expected(allowed)}",
                     self._partial_tokens,
                 )
             # Only emit token if delimiter is valid
-            return Token("IDENTIFIER", lexeme, line=line, column=col)
+            return Token("id", lexeme, line=line, column=col)
     
     def _match_keyword(self, value: str) -> tuple[str, str] | None:
-        """Character-by-character keyword matching for performance."""
+        """Character-by-character keyword matching for performance.
+        Returns (token_kind, keyword) - token_kind matches what grammar expects."""
         length = len(value)
         if length == 0:
             return None
@@ -368,96 +305,96 @@ class Lexer:
         # 'a' keywords
         if first == 'a':
             if length == 8 and value[1] == 'v' and value[2] == 'o' and value[3] == 'i' and value[4] == 'd' and value[5] == 'a' and value[6] == 'n' and value[7] == 't':
-                return ("KEYWORD_VOID", "avoidant")
+                return ("avoidant", "avoidant")
         
         # 'b' keywords
         elif first == 'b':
             if length == 7 and value[1] == 'r' and value[2] == 'e' and value[3] == 'a' and value[4] == 'k' and value[5] == 'u' and value[6] == 'p':
-                return ("KEYWORD_BREAK", "breakup")
+                return ("breakup", "breakup")
             elif length == 10 and value[1] == 'o' and value[2] == 'u' and value[3] == 'n' and value[4] == 'd' and value[5] == 'a' and value[6] == 'r' and value[7] == 'i' and value[8] == 'e' and value[9] == 's':
-                return ("KEYWORD_NAMESPACE", "boundaries")
+                return ("boundaries", "boundaries")
             elif length == 11 and value[1] == 'a' and value[2] == 'r' and value[3] == 'e' and value[4] == 'm' and value[5] == 'i' and value[6] == 'n' and value[7] == 'i' and value[8] == 'm' and value[9] == 'u' and value[10] == 'm':
-                return ("KEYWORD_DEFAULT", "bareminimum")
+                return ("bareminimum", "bareminimum")
         
         # 'c' keywords
         elif first == 'c':
             if length == 5 and value[1] == 'o' and value[2] == 'n' and value[3] == 's' and value[4] == 't':
-                return ("KEYWORD_CONST", "const")
+                return ("const", "const")
             elif length == 6 and value[1] == 'h' and value[2] == 'o' and value[3] == 'o' and value[4] == 's' and value[5] == 'e':
-                return ("KEYWORD_SWITCH", "choose")
+                return ("choose", "choose")
             elif length == 8 and value[1] == 'o' and value[2] == 'm' and value[3] == 'e' and value[4] == 'b' and value[5] == 'a' and value[6] == 'c' and value[7] == 'k':
-                return ("KEYWORD_RETURN", "comeback")
+                return ("comeback", "comeback")
         
         # 'd' keywords
         elif first == 'd':
             if length == 4 and value[1] == 'e' and value[2] == 'a' and value[3] == 'r':
-                return ("KEYWORD_TYPE_INT", "dear")
+                return ("dear", "dear")
             elif length == 7 and value[1] == 'e' and value[2] == 'a' and value[3] == 'r' and value[4] == 'e' and value[5] == 's' and value[6] == 't':
-                return ("KEYWORD_TYPE_FLOAT", "dearest")
+                return ("dearest", "dearest")
         
         # 'e' keywords
         elif first == 'e':
             if length == 7 and value[1] == 'x' and value[2] == 'p' and value[3] == 'r' and value[4] == 'e' and value[5] == 's' and value[6] == 's':
-                return ("KEYWORD_IO_EXPRESS", "express")
+                return ("express", "express")
         
         # 'f' keywords
         elif first == 'f':
             if length == 3 and value[1] == 'o' and value[2] == 'r':
-                return ("KEYWORD_FOR", "for")
+                return ("for", "for")
             elif length == 7 and value[1] == 'o' and value[2] == 'r' and value[3] == 'e' and value[4] == 'v' and value[5] == 'e' and value[6] == 'r':
-                return ("KEYWORD_IF", "forever")
+                return ("forever", "forever")
             elif length == 11 and value[1] == 'o' and value[2] == 'r' and value[3] == 'e' and value[4] == 'v' and value[5] == 'e' and value[6] == 'r' and value[7] == 'm' and value[8] == 'o' and value[9] == 'r' and value[10] == 'e':
-                return ("KEYWORD_ELSEIF", "forevermore")
+                return ("forevermore", "forevermore")
         
         # 'g' keywords
         elif first == 'g':
             if length == 4 and value[1] == 'i' and value[2] == 'v' and value[3] == 'e':
-                return ("KEYWORD_IO_GIVE", "give")
+                return ("give", "give")
             elif length == 9 and value[1] == 'r' and value[2] == 'e' and value[3] == 'e' and value[4] == 'n' and value[5] == 'f' and value[6] == 'l' and value[7] == 'a' and value[8] == 'g':
-                return ("BOOL_LITERAL_TRUE", "greenflag")
+                return ("greenflag", "greenflag")
         
         # 'l' keywords
         elif first == 'l':
             if length == 4 and value[1] == 'o' and value[2] == 'v' and value[3] == 'e':
-                return ("KEYWORD_MAIN", "love")
+                return ("love", "love")
         
         # 'm' keywords
         elif first == 'm':
             if length == 4 and value[1] == 'o' and value[2] == 'r' and value[3] == 'e':
-                return ("KEYWORD_ELSE", "more")
+                return ("more", "more")
             elif length == 6 and value[1] == 'o' and value[2] == 'v' and value[3] == 'e' and value[4] == 'o' and value[5] == 'n':
-                return ("KEYWORD_CONTINUE", "moveon")
+                return ("moveon", "moveon")
         
         # 'o' keywords
         elif first == 'o':
             if length == 9 and value[1] == 'v' and value[2] == 'e' and value[3] == 'r' and value[4] == 's' and value[5] == 'h' and value[6] == 'a' and value[7] == 'r' and value[8] == 'e':
-                return ("KEYWORD_IO_OVERSHARE", "overshare")
+                return ("overshare", "overshare")
         
         # 'p' keywords
         elif first == 'p':
             if length == 5 and value[1] == 'h' and value[2] == 'a' and value[3] == 's' and value[4] == 'e':
-                return ("KEYWORD_CASE", "phase")
+                return ("phase", "phase")
             elif length == 7 and value[1] == 'e' and value[2] == 'r' and value[3] == 'i' and value[4] == 'o' and value[5] == 'd' and value[6] == 't':
-                return ("KEYWORD_ENDL", "periodt")
+                return ("periodt", "periodt")
             elif length == 6 and value[1] == 'u' and value[2] == 'r' and value[3] == 's' and value[4] == 'u' and value[5] == 'e':
-                return ("KEYWORD_DO_WHILE", "pursue")
+                return ("pursue", "pursue")
         
         # 'r' keywords
         elif first == 'r':
             if length == 4 and value[1] == 'a' and value[2] == 'n' and value[3] == 't':
-                return ("KEYWORD_TYPE_STRING", "rant")
+                return ("rant", "rant")
             elif length == 7 and value[1] == 'e' and value[2] == 'd' and value[3] == 'f' and value[4] == 'l' and value[5] == 'a' and value[6] == 'g':
-                return ("BOOL_LITERAL_FALSE", "redflag")
+                return ("redflag", "redflag")
         
         # 's' keywords
         elif first == 's':
             if length == 6 and value[1] == 't' and value[2] == 'a' and value[3] == 't' and value[4] == 'u' and value[5] == 's':
-                return ("KEYWORD_TYPE_BOOL", "status")
+                return ("STATUS", "status")
         
         # 'w' keywords
         elif first == 'w':
             if length == 5 and value[1] == 'h' and value[2] == 'i' and value[3] == 'l' and value[4] == 'e':
-                return ("KEYWORD_WHILE", "while")
+                return ("WHILE", "while")
         
         return None
 
@@ -486,9 +423,9 @@ class Lexer:
             self._advance()
             int_count += 1
         
-        token_kind = "INT_LITERAL"
+        token_kind = "dear_lit"
         if self._peek() == "." and self._peek_next().isdigit():
-            token_kind = "FLOAT_LITERAL"
+            token_kind = "dearest_lit"
             self._advance()
             frac_count = 0
             while self._peek().isdigit():
@@ -508,7 +445,7 @@ class Lexer:
         lexeme = self.source[self.start:self.pos]
         
         # Validate limits (log lexical errors for overflow but still return token)
-        if token_kind == "INT_LITERAL":
+        if token_kind == "dear_lit":
             raw_digits = lexeme.lstrip("-")
             digits_only = lexeme.lstrip("-0") or "0"
             value = int(digits_only)
@@ -517,8 +454,8 @@ class Lexer:
                     f"Integer literal `{lexeme}` exceeds maximum value ±9999999999 at {line}:{col}"
                 )
         
-        # FLOAT_LITERAL: validate ranges (log errors but continue)
-        if token_kind == "FLOAT_LITERAL":
+        # dearest_lit: validate ranges (log errors but continue)
+        if token_kind == "dearest_lit":
             int_part, _, frac_part = lexeme.partition(".")
             norm_int = int_part.lstrip("0") or "0"
             norm_frac_raw = frac_part.rstrip("0")
@@ -558,13 +495,13 @@ class Lexer:
                     f"Invalid token `{invalid_lexeme}`: identifiers cannot start with a digit at {line}:{col}"
                 )
                 return None  # Don't emit a token, let continuation handle the rest
-            human_kind = "float" if token_kind == "FLOAT_LITERAL" else "integer"
+            human_kind = "float" if token_kind == "dearest_lit" else "integer"
             raise LexerError(
-                f"Invalid delimiter after {human_kind} {lexeme}: {nxt} at {line}:{self.column}\nExpected: {self._format_expected(NUMBER_FOLLOW_CHARS)}",
+                f"Invalid delimiter after {human_kind} `{lexeme}` at {line}:{self.column}\n\nExpected delimiter: {self._format_expected(NUMBER_FOLLOW_CHARS)}",
                 self._partial_tokens,
             )
         
-        if token_kind == "INT_LITERAL":
+        if token_kind == "dear_lit":
             return Token(token_kind, lexeme, literal=lexeme, line=line, column=col)
 
         # Return float token
@@ -587,7 +524,7 @@ class Lexer:
     def _number_continuation_token(self, line: int, col: int) -> Token:
         """Continue scanning from 11th+ digit or 7th+ fractional digit after exceeding limit."""
         count = 1
-        token_kind = "INT_LITERAL"
+        token_kind = "dear_lit"
         
         # Consume digits
         while self._peek().isdigit() and count < 10:
@@ -596,7 +533,7 @@ class Lexer:
         
         # Check if there's a decimal point followed by more digits (makes it a float)
         if self._peek() == "." and self._peek_next().isdigit():
-            token_kind = "FLOAT_LITERAL"
+            token_kind = "dearest_lit"
             self._advance()  # consume the '.'
             # Consume fractional digits up to 6
             frac_count = 0
@@ -645,14 +582,14 @@ class Lexer:
                         f"Invalid token `{invalid_lexeme}`: identifiers cannot start with a digit at {self.line}:{self.column}",
                         self._partial_tokens,
                     )
-                human_kind = "float" if token_kind == "FLOAT_LITERAL" else "integer"
+                human_kind = "float" if token_kind == "dearest_lit" else "integer"
                 raise LexerError(
-                    f"Invalid delimiter after {human_kind} `{lexeme}`: at {self.line}:{self.column}\n\nExpected: {self._format_expected(NUMBER_FOLLOW_CHARS)}",
+                    f"Invalid delimiter after {human_kind} `{lexeme}` at {self.line}:{self.column}\n\nExpected delimiter: {self._format_expected(NUMBER_FOLLOW_CHARS)}",
                     self._partial_tokens,
                 )
             
             # Emit the overflow token
-            if token_kind == "INT_LITERAL":
+            if token_kind == "dear_lit":
                 return Token(token_kind, lexeme, literal=lexeme, line=line, column=col)
             else:
                 # Format float literal
@@ -714,10 +651,10 @@ class Lexer:
                     nxt = self._peek()
                     if nxt not in STRING_DELIMS:
                         raise LexerError(
-                            f"Invalid delimiter after string literal: {nxt} at {line}:{self.column}\nExpected: {self._format_expected(STRING_DELIMS)}",
+                            f"Invalid delimiter after string literal at {line}:{self.column}\n\nExpected delimiter: {self._format_expected(STRING_DELIMS)}",
                             self._partial_tokens,
                         )
-                    return Token("STRING_LITERAL", lexeme, literal=inner, line=line, column=col)
+                    return Token("rant_lit", lexeme, literal=inner, line=line, column=col)
 
                 nxt = self._peek()
                 # If the next char is NOT a valid string delimiter, treat this quote as literal
@@ -730,10 +667,10 @@ class Lexer:
                 # Validate delimiter after closing quote
                 if nxt not in STRING_DELIMS:
                     raise LexerError(
-                        f"Invalid delimiter after string literal: {nxt} at {line}:{self.column}\nExpected: {self._format_expected(STRING_DELIMS)}",
+                        f"Invalid delimiter after string literal at {line}:{self.column}\n\nExpected delimiter: {self._format_expected(STRING_DELIMS)}",
                         self._partial_tokens,
                     )
-                return Token("STRING_LITERAL", lexeme, literal=inner, line=line, column=col)
+                return Token("rant_lit", lexeme, literal=inner, line=line, column=col)
             if c == "\n":
                 # Unterminated string - reset position to after the opening quote
                 # so remaining characters can be tokenized
@@ -799,14 +736,6 @@ class Lexer:
         return self.source[self.pos + 1]
 
 
-    def _peek_non_whitespace(self) -> str:
-        i = self.pos
-        while i < self.length and self.source[i] in {" ", "\t", "\r", "\n"}:
-            i += 1
-        if i >= self.length:
-            return "\0"
-        return self.source[i]
-
     def _match(self, expected: str) -> bool:
         if self._is_at_end() or self.source[self.pos] != expected:
             return False
@@ -817,112 +746,65 @@ class Lexer:
     def _is_at_end(self) -> bool:
         return self.pos >= self.length
 
-    def _format_expected_readable(self, allowed: set[str]) -> str:
-        """Format expected delimiters in a readable way for reserved words."""
-        parts: List[str] = []
-        
-        # Check for whitespace
-        if " " in allowed:
-            parts.append("Space")
-        if "\t" in allowed:
-            parts.append("Tab")
-        if "\n" in allowed:
-            parts.append("Newline")
-        
-        # Add specific symbols
-        for ch in sorted(allowed):
-            if ch not in {" ", "\t", "\n", "\0"}:
-                parts.append(ch)
-        
-        return ", ".join(parts)
-
     def _format_expected(self, allowed: set[str]) -> str:
+        """Format expected delimiters in a human-readable way.
+        Format: Space, Tab, Newline, "(", "{", "+", etc.
+        """
         parts: List[str] = []
         seen: set[str] = set()
         covered_chars: set[str] = set()
 
-        def add(label: str, ch: str) -> None:
-            if ch in allowed and label not in seen:
-                parts.append(label)
-                seen.add(label)
-                seen.add(ch)  # Also mark the character itself as seen
+        # Whitespace first (readable names, no quotes)
+        if " " in allowed:
+            parts.append("Space")
+            seen.add(" ")
+        if "\t" in allowed:
+            parts.append("Tab")
+            seen.add("\t")
+        if "\n" in allowed:
+            parts.append("Newline")
+            seen.add("\n")
+        if "\0" in allowed:
+            parts.append("EOF")
+            seen.add("\0")
 
-        # Whitespace and EOF
-        add("space", " ")
-        add("tab", "\t")
-        add("newline", "\n")
-        add("EOF", "\0")
-
-        # Single-character delimiters
-        for ch in ["(", ")", "[", "]", "{", "}", ";", ",", ":"]:
-            add(ch, ch)
-        for ch in ["+", "-", "*", "/", "%", "=", "!", ">", "<", "&", "|", "."]:
-            add(ch, ch)
-        
-        # Double quote (special handling for clarity)
-        if '"' in allowed and '"' not in seen:
-            parts.append('"')
-            seen.add('"')
-        
-        # Single quote (special handling for clarity)
-        if "'" in allowed and "'" not in seen:
-            parts.append("'")
-            seen.add("'")
-
-        # If full ranges exist in allowed, show compact labels and mark covered
+        # Check for alphabet/digit ranges
         from string import ascii_uppercase as _UC, ascii_lowercase as _LC, digits as _DG
         uc = set(_UC)
         lc = set(_LC)
         dg = set(_DG)
-
-        if uc.issubset(allowed):
-            parts.append("A:Z")
-            covered_chars |= uc
-        if lc.issubset(allowed):
-            parts.append("a:z")
-            covered_chars |= lc
-        if dg.issubset(allowed):
-            parts.append("0:9")
+        
+        has_alphabet = (uc | lc).issubset(allowed)
+        has_digit = dg.issubset(allowed)
+        
+        if has_alphabet and has_digit:
+            # Show as separate ranges: 0-9, A-Z, a-z
+            parts.append("0-9")
+            parts.append("A-Z")
+            parts.append("a-z")
+            covered_chars |= uc | lc | dg
+        elif has_alphabet:
+            # Show as separate ranges: A-Z, a-z
+            parts.append("A-Z")
+            parts.append("a-z")
+            covered_chars |= uc | lc
+        elif has_digit:
+            parts.append("0-9")
             covered_chars |= dg
 
-        # Collect remaining characters and group into ranges
-        remaining = []
-        for item in sorted(allowed):
-            # Skip if already covered above
-            if item in seen or len(item) > 1 or item in covered_chars:  # Skip multi-char tokens and covered ranges
+        # Collect symbols (single chars that aren't whitespace or covered)
+        symbols = []
+        for ch in sorted(allowed):
+            if ch in seen or ch in covered_chars:
                 continue
-            remaining.append(item)
+            if len(ch) == 1:
+                symbols.append(ch)
+                seen.add(ch)
         
-        # Group consecutive characters into ranges
-        if remaining:
-            i = 0
-            while i < len(remaining):
-                start = remaining[i]
-                end = start
-                # Find consecutive characters
-                while i + 1 < len(remaining) and ord(remaining[i + 1]) == ord(remaining[i]) + 1:
-                    i += 1
-                    end = remaining[i]
-                
-                # Format as range if 3+ consecutive, otherwise list individually
-                if ord(end) - ord(start) >= 2:  # 3 or more consecutive
-                    parts.append(f"{start}:{end}")
-                else:
-                    # Add individual characters
-                    for j in range(ord(start), ord(end) + 1):
-                        parts.append(chr(j))
-                i += 1
-        
-        # Add remaining multi-character tokens (e.g., &&, ||)
-        for item in sorted(allowed):
-            if len(item) > 1 and item not in seen:
-                parts.append(item)
-                seen.add(item)
+        # Add symbols without quotes
+        for sym in symbols:
+            parts.append(sym)
 
-        if not parts:
-            parts.append(", ".join(sorted(a for a in allowed)))
-        # Filter out empty strings and join
-        parts = [p for p in parts if p]
         return ", ".join(parts)
 
     def _validate_symbol_follow(self, lexeme: str, line: int, col: int) -> None:
@@ -947,7 +829,7 @@ class Lexer:
         if nxt not in allowed:
             expected = self._format_expected(allowed)
             raise LexerError(
-                f"Invalid delimiter after operator `{lexeme}` at {line}:{col}\n\nExpected: {expected}",
+                f"Invalid delimiter after operator `{lexeme}` at {line}:{col}\n\nExpected delimiter: {expected}",
                 self._partial_tokens,
             )
 
@@ -958,35 +840,31 @@ def tokenize_with_errors(source: str) -> tuple[List[Token], List[str]]:
     return Lexer(source).scan_tokens_collect_errors()
 
 def _format_tokenizer(tok: Token) -> str:
-    display_name_overrides = {
-        "(": "parenthesis",
-        ")": "parenthesis",
-        "{": "brace",
-        "}": "brace",
-        "[": "bracket",
-        "]": "bracket",
-        ";": "semicolon",
-        ",": "comma",
-    }
-    # Display lexeme for all tokens (literals use their inner value).
-    if tok.literal is not None:
-        return tok.literal
-    return display_name_overrides.get(tok.lexeme, tok.lexeme)
+    """Format token for display - uses the simplified token name from TOKEN_DISPLAY_NAME."""
+    return tok.token
 
 
 def _token_type(kind: str) -> str:
-    if kind in {"INT_LITERAL"}:
-        name = "INT_LIT"
-    elif kind in {"FLOAT_LITERAL"}:
-        name = "FLOAT_LIT"
-    elif kind in {"STRING_LITERAL"}:
-        name = "STRING_LIT"
-    elif kind in {"CHAR_LITERAL"}:
-        name = "CHAR_LIT"
-    elif kind in {"BOOL_LITERAL_FALSE", "BOOL_LITERAL_TRUE"}:
-        name = "BOOL_LIT"
+    """Get the token type name (Token Type column - uppercase type)."""
+    # Use TOKEN_DISPLAY_NAME mapping for token type display
+    # Lowercase tokens (dear_lit, dearest_lit, rant_lit, id, keywords) map to uppercase types (INT_LIT, FLOAT_LIT, STRING_LIT, IDENTIFIER, MAIN, etc.)
+    # Uppercase tokens (LPAREN, OP_LSHIFT, etc.) are used as-is (their TOKEN_DISPLAY_NAME entries map to display symbols, not types)
+    
+    # Check if lowercase version exists in mapping (for dear_lit, rant_lit, id, keywords)
+    kind_lower = kind.lower()
+    if kind_lower in TOKEN_DISPLAY_NAME:
+        mapped = TOKEN_DISPLAY_NAME[kind_lower]
+        # If mapped value is uppercase (token type), use it; otherwise it's a display symbol, use original uppercased
+        if mapped.isupper():
+            name = mapped  # e.g., "rant_lit" → "STRING_LIT", "love" → "MAIN"
+        else:
+            name = kind.upper()  # Display symbol mapping, use original uppercased
+    elif kind.isupper():
+        # Already uppercase (LPAREN, OP_LSHIFT, etc.) - use as-is
+        name = kind
     else:
-        name = TOKEN_TYPE_OVERRIDES.get(kind, kind)
+        # Fallback
+        name = kind.upper()
     return name[:12]
 
 

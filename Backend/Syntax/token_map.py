@@ -117,7 +117,7 @@ identifier_del = {
     "identifier": {
         " ", "\t", "\n",
         ";", ",", ")", "}", "(", "{", "[", "]", ":",
-        "=", "+", "-", "*", "/", "%", "!", ">", "<", "&", "|",
+        "=", "+", "-", "*", "/", "%", ">", "<", "&", "|",
        
     }
 }
@@ -188,4 +188,144 @@ expanded_int_lit = {name: expand_follow(spec) for name, spec in int_lit.items()}
 expanded_string_lit = {name: expand_follow(spec) for name, spec in string_lit.items()}
 
 
+# =============================================================================
+# TOKEN DEFINITIONS
+# =============================================================================
+# Mappings from lexemes (source code characters) to token kinds.
+# Used by Lexer for tokenization.
+# =============================================================================
+
+MULTI_CHAR_OPERATORS = {
+    "==": "OP_EQ",
+    "!=": "OP_NEQ",
+    ">=": "OP_GTE",
+    "<=": "OP_LTE",
+    ">>": "OP_RSHIFT",
+    "<<": "OP_LSHIFT",
+    "&&": "OP_AND",
+    "||": "OP_OR",
+    "++": "OP_INC",
+    "--": "OP_DEC",
+    "+=": "OP_PLUS_ASSIGN",
+    "-=": "OP_MINUS_ASSIGN",
+    "*=": "OP_MUL_ASSIGN",
+    "/=": "OP_DIV_ASSIGN",
+    "%=": "OP_MOD_ASSIGN",
+    "::": "OP_SCOPE",
+    "->": "OP_ARROW",
+}
+
+SINGLE_CHAR_TOKENS = {
+    ";": "SEMICOLON",
+    ",": "COMMA",
+    "(": "LPAREN",
+    ")": "RPAREN",
+    "{": "LBRACE",
+    "}": "RBRACE",
+    "[": "LBRACKET",
+    "]": "RBRACKET",
+    ":": "COLON",
+    ".": "DOT",
+    "+": "PLUS",
+    "-": "MINUS",
+    "*": "STAR",
+    "/": "SLASH",
+    "%": "PERCENT",
+    "=": "ASSIGN",
+    ">": "GT",
+    "<": "LT",
+    "!": "NOT",
+    "|": "BIT OR",
+}
+
+
+# =============================================================================
+# TOKEN DISPLAY MAPPING
+# =============================================================================
+# Unified mapping from token kinds to human-readable display names.
+# Used by both Lexer (for frontend display) and Parser (for error messages).
+# =============================================================================
+
+TOKEN_DISPLAY_NAME = {
+    # Delimiters - display the actual symbol
+    "LPAREN": "(",
+    "RPAREN": ")",
+    "LBRACE": "{",
+    "RBRACE": "}",
+    "LBRACKET": "[",
+    "RBRACKET": "]",
+    "SEMICOLON": ";",
+    "COMMA": ",",
+    "COLON": ":",
+    "DOT": ".",
+    
+    # Operators - display the actual symbol
+    "PLUS": "+",
+    "MINUS": "-",
+    "STAR": "*",
+    "SLASH": "/",
+    "PERCENT": "%",
+    "ASSIGN": "=",
+    "LT": "<",
+    "GT": ">",
+    "NOT": "!",
+    "OP_EQ": "==",
+    "OP_NEQ": "!=",
+    "OP_LTE": "<=",
+    "OP_GTE": ">=",
+    "OP_AND": "&&",
+    "OP_OR": "||",
+    "OP_INC": "++",
+    "OP_DEC": "--",
+    "OP_LSHIFT": "<<",
+    "OP_RSHIFT": ">>",
+    "OP_PLUS_ASSIGN": "+=",
+    "OP_MINUS_ASSIGN": "-=",
+    "OP_MUL_ASSIGN": "*=",
+    "OP_DIV_ASSIGN": "/=",
+    "OP_MOD_ASSIGN": "%=",
+    "OP_SCOPE": "::",
+    
+    # Keywords - key is lowercase (token), value is uppercase (token type)
+    "love": "MAIN",
+    "boundaries": "NAMESPACE",
+    "const": "CONST",
+    "avoidant": "VOID",
+    "comeback": "RETURN",
+    "dear": "INT",
+    "dearest": "FLOAT",
+    "rant": "STRING",
+    "status": "STATUS",
+    "give": "INPUT",
+    "express": "OUTPUT",
+    "overshare": "GETLINE",
+    "forever": "IF",
+    "more": "ELSE",
+    "forevermore": "ELSEIF",
+    "choose": "SWITCH",
+    "phase": "CASE",
+    "bareminimum": "DEFAULT",
+    "for": "FOR",
+    "while": "WHILE",
+    "pursue": "DOWHILE",
+    "breakup": "BREAK",
+    "moveon": "CONTINUE",
+    "periodt": "ENDL",
+    "greenflag": "TRUE",
+    "redflag": "FALSE",
+    
+    # Identifiers and Literals - key is lowercase (token), value is uppercase (token type)
+    "id": "IDENTIFIER",
+    "dear_lit": "INT_LIT",
+    "dearest_lit": "FLOAT_LIT",
+    "rant_lit": "STRING_LIT",   
+    
+    # Special token type mappings (only for transformations)
+    "greenflag": "BOOL_LIT",
+    "redflag": "BOOL_LIT",
+    
+    # Special
+    "NEWLINE": "\\n",
+    "EOF": "EOF",
+}
 

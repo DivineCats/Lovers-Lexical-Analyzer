@@ -196,7 +196,7 @@ export default function Terminal({ validation = null, lexError = null, lexErrors
           <div className="term-log__empty">No errors detected.</div>
         )}
         {errors.map((error, idx) => {
-          const constructionHint = error.type === "syntax" ? getConstructionHint(error.expected, error.message) : null;
+          const constructionHint = error.type === "syntax" ? getConstructionHint(error.expected, error.message, error.unexpectedToken) : null;
           
           return (
             <div key={idx} className="error-container">

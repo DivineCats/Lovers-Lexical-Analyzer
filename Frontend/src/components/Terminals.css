@@ -176,10 +176,10 @@
 .error-hint {
   margin-left: 32px;
   padding: 8px 12px;
-  background: rgba(52, 152, 219, 0.15);
-  border-left: 3px solid #3498db;
+  background: rgba(255, 182, 193, 0.15);
+  border-left: 3px solid #e91e63;
   border-radius: 4px;
-  color: #85c1e9;
+  color: #f8bbd9;
   font-size: 12px;
 }
 

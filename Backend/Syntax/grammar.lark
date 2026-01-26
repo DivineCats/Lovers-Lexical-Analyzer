@@ -293,4 +293,3 @@ array_decl: LBRACKET RBRACKET array_decl
 // Array indexing
 index_array: LBRACKET expr_ar RBRACKET index_array
            | 
-

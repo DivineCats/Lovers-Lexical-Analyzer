@@ -55,6 +55,7 @@ export default function App() {
   const [lexError, setLexError] = useState<string | null>(null);
   const [lexErrors, setLexErrors] = useState<string[]>([]);
   const [backendError, setBackendError] = useState<string | null>(null);
+  const [parserType, setParserType] = useState<"lark" | "rd">("rd");
 
   const lexSource = useCallback(async (text: string): Promise<LexResult> => {
     const body = text ?? "";
@@ -146,7 +147,7 @@ export default function App() {
       const resp = await fetch(VALIDATE_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: body }),
+        body: JSON.stringify({ source: body, parser: parserType }),
       });
       const { data: payload, raw } = await parseResponseBody(resp);
 
@@ -206,7 +207,7 @@ export default function App() {
       setValidation(failure);
       return failure;
     }
-  }, [source]);
+  }, [source, parserType]);
 
   useEffect(() => {
     const handle = setTimeout(() => {
@@ -221,7 +222,7 @@ export default function App() {
       })();
     }, 400);
     return () => clearTimeout(handle);
-  }, [lexSource, syntaxSource, source]);
+  }, [lexSource, syntaxSource, source, parserType]);
 
   const handleEditorChange = useCallback(
     (files: FileTab[], activeId: string) => {
@@ -235,7 +236,26 @@ export default function App() {
     <>
       <Header
         label="main.love"
-        right={<span className={`status status--${status}`}>{TOKEN_STATUS_LABEL[status]}</span>}
+        right={
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <select
+              value={parserType}
+              onChange={(e) => setParserType(e.target.value as "lark" | "rd")}
+              style={{
+                padding: "4px 8px",
+                borderRadius: "4px",
+                border: "1px solid #ccc",
+                fontSize: "12px",
+                cursor: "pointer"
+              }}
+              title="Choose parser: Recursive Descent (default) or Lark"
+            >
+              <option value="rd">Recursive Descent</option>
+              <option value="lark">Lark Parser</option>
+            </select>
+            <span className={`status status--${status}`}>{TOKEN_STATUS_LABEL[status]}</span>
+          </div>
+        }
       />
       <main className="app">
         <section className="panel panel--editor">

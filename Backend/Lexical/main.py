@@ -3,7 +3,7 @@ from flask_cors import CORS
 
 from Backend.Lexical import Lexer, tokens_as_rows, tokenize_with_errors
 from Backend.Lexical.Lexer import LexerError
-from Backend.Syntax import parse_with_errors, create_error_context
+from Backend.Syntax import parse_with_errors, parse_with_full_recovery, parse_with_errors_rd, create_error_context
 
 app = Flask(__name__)
 CORS(app, resources={r"/lex": {"origins": "*"}, r"/validate": {"origins": "*"}})
@@ -36,6 +36,8 @@ def lex():
 def validate():
     payload = request.get_json(silent=True) or {}
     source = payload.get("source", "")
+    parser_type = payload.get("parser", "lark")  # "lark" or "rd" (recursive descent)
+    
     if not isinstance(source, str):
         return jsonify({"error": "`source` must be a string"}), 400
 
@@ -63,8 +65,13 @@ def validate():
             "code": "ERR_LEXICAL"
         }), 200
 
-    # Then run syntax analysis
-    tree, syntax_errors = parse_with_errors(source)
+    # Then run syntax analysis - choose parser based on request
+    if parser_type == "rd":
+        # Use Recursive Descent Parser
+        tree, syntax_errors = parse_with_errors_rd(source)
+    else:
+        # Use Lark parser (default)
+        tree, syntax_errors = parse_with_full_recovery(source)
     
     if syntax_errors:
         errors_list = []
@@ -88,12 +95,14 @@ def validate():
             "line": syntax_errors[0].line,
             "column": syntax_errors[0].column,
             "expected": syntax_errors[0].expected,
-            "errors": errors_list
+            "errors": errors_list,
+            "parser": parser_type  # Include which parser was used
         }), 200
 
     return jsonify({
         "ok": True,
-        "message": "Syntax OK - No errors found"
+        "message": f"Syntax OK - No errors found (using {parser_type} parser)",
+        "parser": parser_type
     }), 200
 
 

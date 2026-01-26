@@ -3,8 +3,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
-from typing import List, Optional
+import re
+from dataclasses import dataclass, asdict, field
+from typing import List, Optional, Tuple
 
 # Import TOKEN_DISPLAY_NAME for token name conversion
 from Backend.Syntax.token_map import TOKEN_DISPLAY_NAME
@@ -21,12 +22,24 @@ class SyntaxError(Exception):
         column: Column number where the error occurred (1-indexed).
         expected: List of expected tokens/rules at this position.
         found: The actual token/character that was found.
+        raw_message: Optional original error message from parser.
+        keywords: Optional list of expected keywords.
+        literals: Optional list of expected literals.
+        symbols: Optional list of expected symbols.
+        others: Optional list of other expected tokens.
+        is_end_of_input: Optional flag indicating end-of-input error.
     """
     message: str
     line: int
     column: int
     expected: List[str]
     found: str
+    raw_message: Optional[str] = None
+    keywords: List[str] = field(default_factory=list)
+    literals: List[str] = field(default_factory=list)
+    symbols: List[str] = field(default_factory=list)
+    others: List[str] = field(default_factory=list)
+    is_end_of_input: bool = False
 
     def __str__(self) -> str:
         """Return a formatted error message."""
@@ -35,7 +48,11 @@ class SyntaxError(Exception):
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
-        return asdict(self)
+        result = asdict(self)
+        # Rename is_end_of_input to isEndOfInput for frontend compatibility
+        if 'is_end_of_input' in result:
+            result['isEndOfInput'] = result.pop('is_end_of_input')
+        return result
 
 
 def format_syntax_error(error: SyntaxError) -> str:
@@ -269,3 +286,248 @@ def create_error_context(source: str, line: int, column: int, context_lines: int
             result.append(caret_line)
     
     return "\n".join(result)
+
+
+def analyze_open_brackets(fragment: str) -> List[str]:
+    """
+    Analyze which brackets are currently open in the code fragment.
+    
+    Uses a stack to track opening brackets and matches closing brackets.
+    
+    Args:
+        fragment: Code fragment up to the error position.
+        
+    Returns:
+        List of currently open brackets in order (most recent last).
+    """
+    stack = []
+    bracket_pairs = {'(': ')', '[': ']', '{': '}'}
+    
+    for ch in fragment:
+        if ch in bracket_pairs:  # Opening bracket
+            stack.append(ch)
+        elif ch in bracket_pairs.values():  # Closing bracket
+            # Find matching opening bracket
+            for opening, closing in bracket_pairs.items():
+                if ch == closing:
+                    # If we have a matching open bracket, pop it
+                    if stack and stack[-1] == opening:
+                        stack.pop()
+                    break
+    
+    # Return list of currently open brackets
+    return stack
+
+
+def categorize_tokens(tokens: List[str]) -> Tuple[List[str], List[str], List[str], List[str]]:
+    """
+    Categorize tokens into keywords, literals, symbols, and others.
+    
+    Args:
+        tokens: List of token names (already converted to readable format).
+        
+    Returns:
+        Tuple of (keywords, literals, symbols, others) lists.
+    """
+    # Lovers language keywords
+    KEYWORDS = {
+        "love", "boundaries", "const", "avoidant", "comeback",
+        "dear", "dearest", "rant", "status", "forever", "forevermore",
+        "more", "choose", "phase", "bareminimum", "for", "while",
+        "pursue", "breakup", "give", "express", "overshare", "periodt",
+        "greenflag", "redflag", "moveon"
+    }
+    
+    # Literal types
+    LITERALS = {
+        "integer literal", "float literal", "string literal",
+        "INT_LIT", "FLOAT_LIT", "STRING_LIT", "DEAR_LIT", 
+        "DEAREST_LIT", "RANT_LIT", "BOOL_LIT"
+    }
+    
+    keywords_cat = []
+    literals_cat = []
+    symbols_cat = []
+    others_cat = []
+    
+    for token in tokens:
+        token_str = str(token).strip().lower()
+        token_original = str(token).strip()
+        
+        # Check if it's a keyword (case-insensitive)
+        if token_str in KEYWORDS:
+            keywords_cat.append(token_str)
+        # Check if it's a literal
+        elif token_str in LITERALS or "literal" in token_str.lower():
+            literals_cat.append(token_original)
+        # Check if it's a symbol (non-alphanumeric, single or multi-char)
+        elif re.match(r'^[^\w\s]+$', token_original):
+            symbols_cat.append(token_original)
+        # Check if it's "identifier" or similar
+        elif token_str in ["identifier", "id"]:
+            others_cat.append("identifier")
+        else:
+            others_cat.append(token_original)
+    
+    return keywords_cat, literals_cat, symbols_cat, others_cat
+
+
+def filter_expected_by_bracket_context(
+    expected: List[str], 
+    open_brackets: List[str]
+) -> List[str]:
+    """
+    Filter expected tokens based on bracket context.
+    
+    Only shows closing brackets that match currently open brackets.
+    This prevents suggesting '}' when only '(' is open.
+    
+    Args:
+        expected: List of expected tokens.
+        open_brackets: List of currently open brackets.
+        
+    Returns:
+        Filtered list of expected tokens.
+    """
+    bracket_pairs = {'(': ')', '[': ']', '{': '}'}
+    reverse_pairs = {')': '(', ']': '[', '}': '{'}
+    
+    # Determine which closing brackets are valid
+    valid_closers = set()
+    if open_brackets:
+        # Only the most recently opened bracket can be closed next
+        valid_closers.add(bracket_pairs[open_brackets[-1]])
+    
+    filtered = []
+    for token in expected:
+        token_clean = str(token).strip("'\"")
+        
+        # If token is a closing bracket
+        if token_clean in bracket_pairs.values():
+            if token_clean in valid_closers:
+                filtered.append(token)
+        else:
+            # For all other tokens (including opening brackets), keep them
+            filtered.append(token)
+    
+    return filtered
+
+
+def process_syntax_error_enhanced(
+    error_msg: str,
+    line: int,
+    column: int,
+    expected_tokens: List[str],
+    unexpected_token: Optional[str] = None,
+    code: str = ""
+) -> dict:
+    """
+    Process a syntax error with enhanced analysis (bracket balancing, token categorization).
+    
+    This function provides the same enhanced error processing as the friend's code,
+    adapted for our SyntaxError structure.
+    
+    Args:
+        error_msg: Original error message from parser.
+        line: Line number of error (1-indexed).
+        column: Column number of error (1-indexed).
+        expected_tokens: List of expected token names.
+        unexpected_token: The unexpected token that caused the error.
+        code: Full source code for context analysis.
+        
+    Returns:
+        Dictionary with enhanced error information.
+    """
+    if expected_tokens is None:
+        expected_tokens = []
+    
+    # Extract the fragment of the code up to the error column
+    lines = code.splitlines() if code else []
+    if 0 < line <= len(lines):
+        # Include all previous lines and the current line up to the error column
+        preceding_lines = "\n".join(lines[:line-1])
+        current_fragment = lines[line - 1][:column] if column > 0 else ""
+        line_fragment = preceding_lines + "\n" + current_fragment if preceding_lines else current_fragment
+    else:
+        line_fragment = code[:column] if code and column > 0 else ""
+    
+    # Analyze which brackets are currently open
+    open_brackets = analyze_open_brackets(line_fragment)
+    
+    # Check for end of input
+    is_end_of_input = False
+    mapped_unexpected = "None"
+    token_value = None
+    
+    if unexpected_token is not None:
+        # Handle token object or string
+        if hasattr(unexpected_token, 'type'):
+            token_type = unexpected_token.type
+            token_value = getattr(unexpected_token, 'value', None)
+            mapped_unexpected = TOKEN_DISPLAY_NAME.get(token_type, str(token_value) if token_value else token_type)
+            
+            # Check if token is end of input/EOF
+            if token_type in ['$END', '$EOF'] or mapped_unexpected == "end of input":
+                is_end_of_input = True
+        else:
+            token_value = str(unexpected_token)
+            mapped_unexpected = TOKEN_DISPLAY_NAME.get(token_value, token_value)
+            
+            # Check if token is end of input/EOF
+            if token_value in ['$END', '$EOF'] or mapped_unexpected == "end of input":
+                is_end_of_input = True
+    
+    # Map expected tokens using TOKEN_DISPLAY_NAME
+    mapped_expected = []
+    for token in expected_tokens:
+        if token in TOKEN_DISPLAY_NAME:
+            mapped_expected.append(TOKEN_DISPLAY_NAME[token])
+        else:
+            mapped_expected.append(token)
+    
+    # Convert to readable format
+    readable_expected = convert_tokens_to_readable(mapped_expected)
+    
+    # Check for bracket-related errors
+    bracket_pairs = {'(': ')', '[': ']', '{': '}'}
+    all_brackets = set(bracket_pairs.keys()) | set(bracket_pairs.values())
+    
+    # Determine if this is a bracket-related error
+    unexpected_grammar_error = False
+    if mapped_unexpected in all_brackets:
+        unexpected_grammar_error = True
+        final_message = f"Syntax error at line {line}, column {column}: unexpected '{mapped_unexpected}'"
+    elif is_end_of_input:
+        unexpected_grammar_error = True
+        final_message = f"Syntax error at line {line}, column {column}: unexpected end of input"
+    elif open_brackets:
+        # There are unclosed brackets - determine which one needs to be closed first
+        last_open = open_brackets[-1]
+        needed_closer = bracket_pairs[last_open]
+        final_message = f"Syntax error at line {line}, column {column}: missing '{needed_closer}'"
+        unexpected_grammar_error = True
+    else:
+        # Standard syntax error
+        final_message = f"Syntax error at line {line}, column {column}"
+    
+    # Filter expected tokens based on bracket context
+    filtered_expected = filter_expected_by_bracket_context(readable_expected, open_brackets)
+    
+    # Categorize the filtered tokens
+    keywords_cat, literals_cat, symbols_cat, others_cat = categorize_tokens(filtered_expected)
+    
+    return {
+        "message": final_message,
+        "rawMessage": error_msg,
+        "expected": filtered_expected,
+        "unexpected": mapped_unexpected,
+        "line": line,
+        "column": column,
+        "value": str(token_value) if token_value else "",
+        "type": "syntax",
+        "keywords": keywords_cat,
+        "literals": literals_cat,
+        "symbols": symbols_cat,
+        "others": others_cat,
+        "isEndOfInput": is_end_of_input
+    }

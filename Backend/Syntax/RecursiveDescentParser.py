@@ -512,7 +512,7 @@ class RecursiveDescentParser:
         Args:
             expected_kind: Expected token kind
             error_msg: Custom error message
-            context: Context about what we're parsing (e.g., "statement", "expression")
+            context: Context about what we're parsing (e.g., "statement", "expression", "declaration")
             recover: If True, record error and return None instead of raising (for error recovery)
             
         Returns:
@@ -548,14 +548,29 @@ class RecursiveDescentParser:
             msg = error_msg
         else:
             # Create a user-friendly message
+            possible_terminals = []
             if context:
-                msg = f"Unexpected token '{found_lexeme}' while parsing {context}"
+                # Get all possible terminals based on CFG structure
+                possible_terminals = self._get_all_possible_terminals(context)
+                if possible_terminals:
+                    # Format the possible terminals nicely
+                    terminal_names = [self._format_expected_token(t).strip("'") for t in possible_terminals]
+                    terminals_str = ", ".join(terminal_names)
+                    msg = f"Unexpected token '{found_lexeme}' while parsing {context}. Expected one of: {terminals_str}"
+                else:
+                    # Fallback to CFG suggestion
+                    context_suggestion = self._get_cfg_suggestion(context, expected_kind)
+                    if context_suggestion:
+                        msg = f"Unexpected token '{found_lexeme}' while parsing {context}. {context_suggestion}"
+                    else:
+                        msg = f"Unexpected token '{found_lexeme}' while parsing {context}"
             else:
                 msg = f"Unexpected token '{found_lexeme}'"
             
-            # Add what was expected
-            expected_display = self._format_expected_token(expected_kind)
-            msg += f". Expected {expected_display}"
+            # Add what was expected (if not already included in possible_terminals list)
+            if not possible_terminals:
+                expected_display = self._format_expected_token(expected_kind)
+                msg += f". Expected {expected_display}"
             
             # Add suggestion if we found a similar keyword
             if suggestion and suggestion != found_lexeme.lower():
@@ -567,6 +582,102 @@ class RecursiveDescentParser:
         if recover:
             return None
         raise error
+    
+    def _get_cfg_suggestion(self, context: str, expected_kind: str) -> Optional[str]:
+        """
+        Suggest all possible terminals that can come next based on CFG structure.
+        
+        Args:
+            context: Current parsing context (e.g., "output statement", "after <<", "id_suffix")
+            expected_kind: The expected token kind
+            
+        Returns:
+            A suggestion string listing all possible terminals, or None
+        """
+        context_lower = context.lower()
+        
+        # After << in output statement: can be <expr> or periodt (Rule 71, 72)
+        if "after <<" in context_lower or ("output" in context_lower and expected_kind in ["periodt", "id", "LPAREN", "dear_lit", "dearest_lit", "rant_lit", "greenflag", "redflag"]):
+            return "Expected an expression or 'periodt'"
+        
+        # After express: must be << (Rule 68)
+        if "output statement" in context_lower and expected_kind == "OP_LSHIFT":
+            return "Expected '<<' (output operator)"
+        
+        # After identifier in statement: can be various things (Rule 48-51)
+        if "id_suffix" in context_lower or ("statement" in context_lower and expected_kind in ["LPAREN", "ASSIGN", "OP_PLUS_ASSIGN", "OP_MINUS_ASSIGN", "OP_MUL_ASSIGN", "OP_DIV_ASSIGN", "OP_MOD_ASSIGN", "OP_INC", "OP_DEC", "LBRACKET", "SEMICOLON"]):
+            return "Expected '(', '=', '+=', '-=', '*=', '/=', '%=', '++', '--', '[', or ';'"
+        
+        # After identifier in function call: can be arguments or empty (Rule 50)
+        if "arguments" in context_lower or (expected_kind == "RPAREN" and self._peek_token(-1) and self._peek_token(-1).kind == "LPAREN"):
+            return "Expected an expression or ')'"
+        
+        # In expression: can be various terminals (Rule 74-106)
+        if "expression" in context_lower:
+            return "Expected an expression (identifier, literal, '(', or function call)"
+        
+        # After data type in declaration: must be identifier (Rule 9, 37)
+        if "declaration" in context_lower and expected_kind == "id":
+            return "Expected an identifier"
+        
+        # After identifier in declaration: can be array_decl, =, or ; (Rule 9)
+        if "declaration" in context_lower and expected_kind in ["LBRACKET", "ASSIGN", "SEMICOLON"]:
+            return "Expected '[', '=', or ';'"
+        
+        # In statement list: can be various statements (Rule 38-46)
+        if "statement" in context_lower and "id_suffix" not in context_lower:
+            return "Expected a statement (express, give, overshare, forever, while, pursue, for, comeback, choose, identifier, or unary operator)"
+        
+        # In declaration: can be data types (Rule 24-27)
+        if "declaration" in context_lower and expected_kind in ["dear", "dearest", "rant", "status"]:
+            return "Expected a data type (dear, dearest, rant, or status)"
+        
+        return None
+    
+    def _get_all_possible_terminals(self, context: str) -> List[str]:
+        """
+        Get all possible terminal tokens that can come next based on CFG structure.
+        
+        Args:
+            context: Current parsing context/state
+            
+        Returns:
+            List of possible terminal token kinds
+        """
+        context_lower = context.lower()
+        possible = []
+        
+        # After << in output: expr or periodt (Rule 71, 72)
+        if "after <<" in context_lower or ("output" in context_lower and "after" in context_lower):
+            possible.extend(["periodt", "id", "LPAREN", "dear_lit", "dearest_lit", "rant_lit", "greenflag", "redflag", "MINUS", "NOT"])
+            return possible
+        
+        # After express: must be <<
+        if "output statement" in context_lower and "after express" in context_lower:
+            return ["OP_LSHIFT"]
+        
+        # After identifier in statement: id_suffix options (Rule 48-51)
+        if "id_suffix" in context_lower or ("statement" in context_lower and "after id" in context_lower):
+            possible.extend(["LPAREN", "ASSIGN", "OP_PLUS_ASSIGN", "OP_MINUS_ASSIGN", "OP_MUL_ASSIGN", 
+                           "OP_DIV_ASSIGN", "OP_MOD_ASSIGN", "OP_INC", "OP_DEC", "LBRACKET", "SEMICOLON"])
+            return possible
+        
+        # In expression: can start with various terminals
+        if "expression" in context_lower:
+            possible.extend(["id", "LPAREN", "dear_lit", "dearest_lit", "rant_lit", "greenflag", "redflag", "MINUS", "NOT"])
+            return possible
+        
+        # After data type: identifier
+        if "declaration" in context_lower and "after data_type" in context_lower:
+            return ["id"]
+        
+        # In statement list
+        if "statement" in context_lower:
+            possible.extend(["express", "give", "overshare", "forever", "while", "pursue", "for", 
+                           "comeback", "choose", "id", "OP_INC", "OP_DEC"])
+            return possible
+        
+        return possible
     
     def _find_sync_point(self) -> bool:
         """
@@ -614,6 +725,7 @@ class RecursiveDescentParser:
             "pursue": "'pursue'",
             "comeback": "'comeback'",
             "choose": "'choose'",
+            "periodt": "'periodt'",
             "LPAREN": "'('",
             "RPAREN": "')'",
             "LBRACE": "'{'",
@@ -623,6 +735,21 @@ class RecursiveDescentParser:
             "SEMICOLON": "';'",
             "COMMA": "','",
             "ASSIGN": "'='",
+            "dear_lit": "an integer literal",
+            "dearest_lit": "a float literal",
+            "rant_lit": "a string literal",
+            "greenflag": "'greenflag'",
+            "redflag": "'redflag'",
+            "MINUS": "'-'",
+            "NOT": "'!'",
+            "OP_LSHIFT": "'<<'",
+            "OP_PLUS_ASSIGN": "'+='",
+            "OP_MINUS_ASSIGN": "'-='",
+            "OP_MUL_ASSIGN": "'*='",
+            "OP_DIV_ASSIGN": "'/='",
+            "OP_MOD_ASSIGN": "'%='",
+            "OP_INC": "'++'",
+            "OP_DEC": "'--'",
         }
         return token_display.get(token_kind, f"'{token_kind}'")
     
@@ -663,12 +790,56 @@ class RecursiveDescentParser:
         
         # Parse main function
         self._consume("love", "Expected 'love' keyword for main function")
-        self._consume("LPAREN")
-        self._consume("RPAREN")
-        self._consume("LBRACE")
+        
+        # Check if structure is incomplete and provide helpful suggestion
+        if not self._match("LPAREN"):
+            next_token = self._current_token()
+            if next_token:
+                msg = f"Expected '(' after 'love'. Complete structure: love () {{ ... }}"
+            else:
+                msg = "Expected '(' after 'love'. Complete structure: love () { ... }"
+            error = ParseError(msg, next_token)
+            self.errors.append(error)
+            raise error
+        
+        self._consume("LPAREN", context="main function after love")
+        
+        if not self._match("RPAREN"):
+            next_token = self._current_token()
+            msg = f"Expected ')' after '('. Complete structure: love () {{ ... }}"
+            error = ParseError(msg, next_token)
+            self.errors.append(error)
+            raise error
+        
+        self._consume("RPAREN", context="main function")
+        self._skip_whitespace()  # Skip whitespace after )
+        
+        if not self._match("LBRACE"):
+            next_token = self._current_token()
+            if next_token and next_token.kind != "EOF":
+                msg = f"Expected '{{' after 'love ()'. Found '{next_token.lexeme}' instead. Complete structure: love () {{ ... }}"
+            else:
+                msg = "Expected '{' after 'love ()'. Complete structure: love () { ... }"
+            error = ParseError(msg, next_token)
+            self.errors.append(error)
+            raise error
+        
+        self._consume("LBRACE", context="main function")
         self._skip_whitespace()  # Skip newlines after opening brace
         main_body = self._parse_function_body()
-        self._consume("RBRACE")
+        
+        # Check for missing closing brace
+        if not self._match("RBRACE"):
+            next_token = self._current_token()
+            if next_token and next_token.kind != "EOF":
+                msg = f"Expected '}}' to close 'love () {{' function. Found '{next_token.lexeme}' instead"
+            else:
+                msg = "Expected '}' to close 'love () {' function. Reached end of input"
+            error = ParseError(msg, next_token)
+            self.errors.append(error)
+            raise error
+        
+        self._consume("RBRACE", context="main function")
         
         main_func = MainFunction(body=main_body, line=line, column=col)
         
@@ -768,6 +939,18 @@ class RecursiveDescentParser:
             # Consume love if we have it
             if self._match("love"):
                 self._consume("love")
+                
+                # Check if structure is incomplete and provide helpful suggestion
+                self._skip_whitespace()
+                if not self._match("LPAREN"):
+                    next_token = self._current_token()
+                    if next_token and next_token.kind != "EOF":
+                        msg = f"Expected '(' after 'love'. Complete structure: love () {{ ... }}"
+                    else:
+                        msg = "Expected '(' after 'love'. Complete structure: love () { ... }"
+                    error = ParseError(msg, next_token)
+                    self.errors.append(error)
+                    # Don't raise - let recovery continue
             
             # Try to parse main function structure - use recovery mode
             # After detecting typo for "love", we should still try to parse the function
@@ -814,6 +997,17 @@ class RecursiveDescentParser:
                             except ParseError:
                                 # Error recorded, but we still have the body
                                 main_func = MainFunction(body=main_body, line=line, column=col)
+                        else:
+                            # Missing closing brace for main function
+                            next_token = self._current_token()
+                            if next_token and next_token.kind != "EOF":
+                                msg = f"Expected '}}' to close 'love () {{' function. Found '{next_token.lexeme}' instead"
+                            else:
+                                msg = "Expected '}' to close 'love () {' function. Reached end of input"
+                            error = ParseError(msg, next_token)
+                            self.errors.append(error)
+                            # Still create the function with the body we parsed
+                            main_func = MainFunction(body=main_body, line=line, column=col)
                     except ParseError as e:
                         # Error in function body already recorded
                         print(f"[DEBUG _parse_program_with_recovery] Exception in function body: {e}", file=sys.stderr)
@@ -834,15 +1028,41 @@ class RecursiveDescentParser:
                             )
                             main_func = MainFunction(body=main_body, line=line, column=col)
                 else:
-                    print(f"[DEBUG _parse_program_with_recovery] No LBRACE found after RPAREN. Current token: {self._current_token().kind if self._current_token() else 'None'}", file=sys.stderr)
+                    # Missing opening brace after love ()
+                    next_token = self._current_token()
+                    if next_token and next_token.kind != "EOF":
+                        msg = f"Expected '{{' after 'love ()'. Found '{next_token.lexeme}' instead. Complete structure: love () {{ ... }}"
+                    else:
+                        msg = "Expected '{' after 'love ()'. Complete structure: love () { ... }"
+                    error = ParseError(msg, next_token)
+                    self.errors.append(error)
+                    # Try to continue parsing anyway (might find more errors)
+                    # But we can't create a proper function without the opening brace
             else:
-                print(f"[DEBUG _parse_program_with_recovery] No LPAREN found after 'loe'. Current token: {self._current_token().kind if self._current_token() else 'None'}", file=sys.stderr)
+                # No LPAREN found after love
+                print(f"[DEBUG _parse_program_with_recovery] No LPAREN found after 'love'. Current token: {self._current_token().kind if self._current_token() else 'None'}", file=sys.stderr)
         except ParseError:
             # Error already recorded
             pass
         
         if main_func is None:
             return None
+        
+        # Check if there's unexpected code after the main function
+        # (should only be EOF after love () { ... })
+        self._skip_whitespace()
+        next_token = self._current_token()
+        if next_token and next_token.kind != "EOF":
+            # There's code after the main function - this is invalid
+            # Check if it looks like it should be inside the function body
+            if (next_token.kind in ["dear", "dearest", "rant", "status"] or
+                next_token.kind == "id" or
+                next_token.kind in ["express", "give", "overshare", "forever", "while", "pursue", "for", "comeback", "choose"]):
+                msg = f"Unexpected code after 'love () {{ ... }}' function. Code like '{next_token.lexeme}' should be inside the function body. Did you accidentally close the function too early?"
+            else:
+                msg = f"Unexpected token '{next_token.lexeme}' after 'love () {{ ... }}' function. Only EOF expected after main function."
+            error = ParseError(msg, next_token)
+            self.errors.append(error)
         
         return Program(
             namespace=namespace,
@@ -1546,12 +1766,27 @@ class RecursiveDescentParser:
         # Rule 69: << <output_values> <more_output>
         # Rule 70: << <output_values> (base case)
         while self._match("OP_LSHIFT"):
-            self._consume("OP_LSHIFT")
-            # Parse output_values: <expr> | periodt
+            self._consume("OP_LSHIFT", context="output statement after <<")
+            # Parse output_values: <expr> | periodt (Rule 71, 72)
             if self._match("periodt"):
                 self._consume("periodt")
                 values.append("periodt")
             else:
+                # Parse expression - if it fails, we want context-aware error
+                # Check if we have a valid expression starter first
+                if self._match("NEWLINE") or self._match("SEMICOLON") or self._match("RBRACE"):
+                    # Missing expression after <<
+                    next_token = self._current_token()
+                    possible = self._get_all_possible_terminals("output statement after <<")
+                    if possible:
+                        terminal_names = [self._format_expected_token(t).strip("'") for t in possible]
+                        terminals_str = ", ".join(terminal_names)
+                        msg = f"Unexpected token '{next_token.lexeme if next_token else 'end of input'}' after '<<'. Expected one of: {terminals_str}"
+                    else:
+                        msg = f"Unexpected token '{next_token.lexeme if next_token else 'end of input'}' after '<<'. Expected an expression or 'periodt'"
+                    error = ParseError(msg, next_token)
+                    self.errors.append(error)
+                    raise error
                 values.append(self._parse_expression())
         
         self._consume("SEMICOLON")
@@ -1588,6 +1823,7 @@ class RecursiveDescentParser:
         self._skip_whitespace()
         then_body = self._parse_function_body()
         self._consume("RBRACE")
+        self._skip_whitespace()  # Skip whitespace after closing brace
         
         # Parse elif clauses
         elif_clauses = []
@@ -1600,6 +1836,7 @@ class RecursiveDescentParser:
             self._skip_whitespace()
             elif_body = self._parse_function_body()
             self._consume("RBRACE")
+            self._skip_whitespace()  # Skip whitespace after closing brace
             elif_clauses.append(ElifClause(
                 condition=elif_condition,
                 body=elif_body,
@@ -2070,7 +2307,17 @@ class RecursiveDescentParser:
                 column=lit_token.column
             )
         else:
-            raise ParseError(f"Unexpected token in factor: {token.kind}", token)
+            # Use context-aware error message with suggestions
+            # Check if we're in an output statement context
+            context = "expression"
+            possible = self._get_all_possible_terminals(context)
+            if possible:
+                terminal_names = [self._format_expected_token(t).strip("'") for t in possible]
+                terminals_str = ", ".join(terminal_names)
+                msg = f"Unexpected token '{token.lexeme}' in expression. Expected one of: {terminals_str}"
+            else:
+                msg = f"Unexpected token '{token.lexeme}' in expression. Expected an identifier, literal, '(', or function call"
+            raise ParseError(msg, token)
 
 
 # =============================================================================

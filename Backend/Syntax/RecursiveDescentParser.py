@@ -1099,10 +1099,20 @@ class RecursiveDescentParser:
         max_iterations = 1000  # Prevent infinite loops
         iteration = 0
         
-        while not self._match("RBRACE") and not self._match("EOF") and iteration < max_iterations:
+        # Track brace depth to know when we've reached the function body's closing brace
+        # We start at depth 0 (we're inside the function body's opening brace)
+        # Note: When statements parse nested blocks (like forever { ... }), they consume
+        # the braces internally, so we won't see them here. But during error recovery,
+        # we might skip tokens and see braces, so we need to track them.
+        brace_depth = 0
+        
+        while not self._match("EOF") and iteration < max_iterations:
             iteration += 1
             self._skip_whitespace()
-            if self._match("RBRACE"):
+            
+            # Check if we've reached the function body's closing brace
+            # (only stop if brace_depth == 0, meaning we're at the top level)
+            if self._match("RBRACE") and brace_depth == 0:
                 break
             
             current_token = self._current_token()
@@ -1110,11 +1120,17 @@ class RecursiveDescentParser:
                 print(f"[DEBUG _parse_function_body_with_recovery] Attempting to parse statement: {current_token.kind} '{current_token.lexeme}' (line {current_token.line})", file=sys.stderr)
             
             # Try to parse a statement
+            # Note: When statements parse successfully (e.g., forever { ... }), they consume
+            # their own braces internally, so we stay at brace_depth == 0.
+            # We only need to track depth during error recovery when we skip tokens.
             try:
                 stmt = self._parse_statement()
                 if stmt:
                     statements.append(stmt)
                     self._skip_whitespace()
+                    # After successfully parsing a statement, we're back at top level
+                    # (brace_depth should still be 0, but reset it to be safe)
+                    brace_depth = 0
                 else:
                     # No statement could be parsed - might be an error
                     # Don't skip immediately - the error might have been recorded in _parse_statement
@@ -1140,24 +1156,35 @@ class RecursiveDescentParser:
                 sync_start_token = self._current_token()
                 found_semicolon = False
                 
+                # Track brace depth to avoid stopping at nested closing braces
+                # Use the outer loop's brace_depth variable, starting from its current value
+                # Since we're recovering from an error, we might be inside a nested block.
+                
                 while self._current_token() and self._current_token().kind != "EOF":
                     current_token = self._current_token()
                     
-                    if current_token.kind == "SEMICOLON":
-                        # Found semicolon - consume it and continue to next statement
+                    # Track brace depth as we scan during recovery (update outer loop's brace_depth)
+                    if current_token.kind == "LBRACE":
+                        brace_depth += 1
+                    elif current_token.kind == "RBRACE":
+                        if brace_depth > 0:
+                            # This is closing a nested block, continue looking
+                            brace_depth -= 1
+                        # If brace_depth == 0, this might be the function body's closing brace
+                        # But we don't stop here during error recovery - let the outer loop handle it
+                        # We only look for statement keywords or semicolons as sync points
+                    
+                    # Look for sync points at top level (brace_depth == 0)
+                    if current_token.kind == "SEMICOLON" and brace_depth == 0:
+                        # Found semicolon at top level - consume it and continue to next statement
                         print(f"[DEBUG _parse_function_body_with_recovery] Found semicolon, consuming and continuing", file=sys.stderr)
                         self._advance()
                         found_sync = True
                         found_semicolon = True
                         break
-                    elif current_token.kind == "RBRACE":
-                        # Found closing brace - stop parsing function body
-                        # Don't report missing semicolon error here - the original error already covers it
-                        found_sync = True
-                        break
                     elif current_token.kind in {"express", "give", "overshare", "forever", 
-                                                "while", "pursue", "for", "comeback", "choose"}:
-                        # Found next statement keyword - but we expected a semicolon first!
+                                                "while", "pursue", "for", "comeback", "choose"} and brace_depth == 0:
+                        # Found next statement keyword at top level - but we expected a semicolon first!
                         # Only report missing semicolon error if we haven't already reported one
                         if not found_semicolon and sync_start_token and not error_is_about_semicolon:
                             missing_semicolon_error = ParseError(
@@ -1169,6 +1196,56 @@ class RecursiveDescentParser:
                         # Stop here (don't consume, let next iteration handle it)
                         found_sync = True
                         break
+                    elif current_token.kind in {"more", "forevermore"} and brace_depth == 0:
+                        # These are part of a forever/forevermore chain, not new statements
+                        # Skip past the entire block (more { ... } or forevermore (...) { ... })
+                        # to find the end of the chain
+                        if current_token.kind == "more":
+                            # Skip "more" and its block
+                            self._advance()  # Skip "more"
+                            self._skip_whitespace()
+                            if self._match("LBRACE"):
+                                self._advance()  # Skip "{"
+                                # Skip the body until we find the closing brace
+                                block_depth = 1
+                                while block_depth > 0 and self._current_token() and self._current_token().kind != "EOF":
+                                    if self._current_token().kind == "LBRACE":
+                                        block_depth += 1
+                                    elif self._current_token().kind == "RBRACE":
+                                        block_depth -= 1
+                                    self._advance()
+                                self._skip_whitespace()
+                        elif current_token.kind == "forevermore":
+                            # Skip "forevermore (expr) { ... }"
+                            self._advance()  # Skip "forevermore"
+                            self._skip_whitespace()
+                            if self._match("LPAREN"):
+                                # Skip until matching RPAREN
+                                self._advance()
+                                paren_depth = 1
+                                while paren_depth > 0 and self._current_token() and self._current_token().kind != "EOF":
+                                    if self._current_token().kind == "LPAREN":
+                                        paren_depth += 1
+                                    elif self._current_token().kind == "RPAREN":
+                                        paren_depth -= 1
+                                    self._advance()
+                                self._skip_whitespace()
+                                if self._match("LBRACE"):
+                                    self._advance()  # Skip "{"
+                                    # Skip the body until we find the closing brace
+                                    block_depth = 1
+                                    while block_depth > 0 and self._current_token() and self._current_token().kind != "EOF":
+                                        if self._current_token().kind == "LBRACE":
+                                            block_depth += 1
+                                        elif self._current_token().kind == "RBRACE":
+                                            block_depth -= 1
+                                        self._advance()
+                                    self._skip_whitespace()
+                        # After skipping the block, we've finished the forever chain
+                        # Continue to next iteration of outer loop (which will check for RBRACE)
+                        found_sync = True
+                        break
+                    
                     # Skip this token and continue looking
                     self._advance()
                     self._skip_whitespace()
@@ -1821,7 +1898,12 @@ class RecursiveDescentParser:
         self._consume("RPAREN")
         self._consume("LBRACE")
         self._skip_whitespace()
-        then_body = self._parse_function_body()
+        # Use recovery version for nested bodies so errors don't break the entire chain
+        try:
+            then_body = self._parse_function_body()
+        except ParseError:
+            # Error in then body - use recovery version
+            then_body = self._parse_function_body_with_recovery()
         self._consume("RBRACE")
         self._skip_whitespace()  # Skip whitespace after closing brace
         
@@ -1834,7 +1916,12 @@ class RecursiveDescentParser:
             self._consume("RPAREN")
             self._consume("LBRACE")
             self._skip_whitespace()
-            elif_body = self._parse_function_body()
+            # Use recovery version for nested bodies so errors don't break the entire chain
+            try:
+                elif_body = self._parse_function_body()
+            except ParseError:
+                # Error in elif body - use recovery version
+                elif_body = self._parse_function_body_with_recovery()
             self._consume("RBRACE")
             self._skip_whitespace()  # Skip whitespace after closing brace
             elif_clauses.append(ElifClause(
@@ -1850,7 +1937,12 @@ class RecursiveDescentParser:
             self._consume("more")
             self._consume("LBRACE")
             self._skip_whitespace()
-            else_body = self._parse_function_body()
+            # Use recovery version for nested bodies so errors don't break the entire chain
+            try:
+                else_body = self._parse_function_body()
+            except ParseError:
+                # Error in else body - use recovery version
+                else_body = self._parse_function_body_with_recovery()
             self._consume("RBRACE")
         
         return IfStatement(

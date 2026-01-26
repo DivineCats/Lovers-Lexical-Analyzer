@@ -9,19 +9,38 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from Backend.Syntax import parse_with_full_recovery, create_error_context
+from Backend.Syntax import parse_with_errors_rd, create_error_context
 
 # ============================================================================
 # PASTE YOUR TEST CASE HERE
 # ============================================================================
 test_source = """
-love main() {
-    dear x = 10
-    dearest y = 20.5
-    rant z = "test"
-    
-    x = y + z
-    express << x << periodt;
+love () {
+    dear age;
+
+    express << "Enter your age: ";
+    give >> age;
+
+    express << "You entered " << age << ". You are ";
+
+    forever (age <= 1) {
+        express << "a Baby." << periodt;
+    } 
+    forevermore (age <= 4) {
+        express << "a Toddler." << periodt;
+    } 
+    forevermore (age <= 12) {
+        express << "a Child." << periodt;
+    } 
+    forevermore (age <= 17) {
+        express << "a Teenager." << periodt;
+    } 
+    forevermore (age <= 59) {
+        expess << "an Adult." << periodt;
+    } 
+    more {
+        express << "a Senior Citizen." << periodt;
+    }
 }
 """
 
@@ -30,7 +49,7 @@ love main() {
 # ============================================================================
 if __name__ == "__main__":
     print("=" * 70)
-    print("ERROR RECOVERY TEST")
+    print("RECURSIVE DESCENT PARSER TEST")
     print("=" * 70)
     print("\nSource Code:")
     print(test_source)
@@ -38,10 +57,10 @@ if __name__ == "__main__":
     print("Results:")
     print("=" * 70)
     
-    tree, errors = parse_with_full_recovery(test_source)
+    tree, errors = parse_with_errors_rd(test_source)
     
     if errors:
-        print(f"\n✓ Found {len(errors)} error(s):\n")
+        print(f"\nFound {len(errors)} error(s):\n")
         for i, error in enumerate(errors, 1):
             print(f"{'='*70}")
             print(f"ERROR {i}:")

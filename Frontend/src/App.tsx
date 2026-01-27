@@ -55,7 +55,7 @@ export default function App() {
   const [lexError, setLexError] = useState<string | null>(null);
   const [lexErrors, setLexErrors] = useState<string[]>([]);
   const [backendError, setBackendError] = useState<string | null>(null);
-  const [parserType, setParserType] = useState<"lark" | "rd">("rd");
+  const [parserType, setParserType] = useState<"lark" | "rd" | "simple_rd">("rd");
 
   const lexSource = useCallback(async (text: string): Promise<LexResult> => {
     const body = text ?? "";
@@ -240,7 +240,7 @@ export default function App() {
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
             <select
               value={parserType}
-              onChange={(e) => setParserType(e.target.value as "lark" | "rd")}
+              onChange={(e) => setParserType(e.target.value as "lark" | "rd" | "simple_rd")}
               style={{
                 padding: "4px 8px",
                 borderRadius: "4px",
@@ -248,9 +248,10 @@ export default function App() {
                 fontSize: "12px",
                 cursor: "pointer"
               }}
-              title="Choose parser: Recursive Descent (default) or Lark"
+              title="Choose parser: Recursive Descent, Simple Recursive Descent, or Lark"
             >
               <option value="rd">Recursive Descent</option>
+              <option value="simple_rd">Simple Recursive Descent</option>
               <option value="lark">Lark Parser</option>
             </select>
             <span className={`status status--${status}`}>{TOKEN_STATUS_LABEL[status]}</span>

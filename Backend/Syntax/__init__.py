@@ -5,13 +5,17 @@ from Backend.Syntax.Parser import (
     Parser,
     parse,
     parse_with_errors,
-    parse_with_full_recovery,
     get_parser,
 )
 from Backend.Syntax.RecursiveDescentParser import (
     RecursiveDescentParser,
     parse_from_source,
     parse_with_errors_rd,
+)
+from Backend.Syntax.SimpleRecursiveDescentParser import (
+    SimpleRecursiveDescentParser,
+    parse_with_errors_simple_rd,
+    get_simple_parser,
 )
 from Backend.Syntax.errors import (
     SyntaxError,
@@ -24,12 +28,15 @@ __all__ = [
     "Parser",
     "parse",
     "parse_with_errors",
-    "parse_with_full_recovery",
     "get_parser",
     # Recursive Descent Parser
     "RecursiveDescentParser",
     "parse_from_source",
     "parse_with_errors_rd",
+    # Simple Recursive Descent Parser
+    "SimpleRecursiveDescentParser",
+    "parse_with_errors_simple_rd",
+    "get_simple_parser",
     # Errors
     "SyntaxError",
     "format_syntax_error",

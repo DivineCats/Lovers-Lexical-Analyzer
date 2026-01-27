@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from Backend.Syntax import parse_with_full_recovery, create_error_context
+from Backend.Syntax import parse_with_errors, create_error_context
 
 def test_error_recovery():
     """Test error recovery with multiple syntax errors."""
@@ -36,15 +36,15 @@ boundaries test {
 """
     
     print("=" * 60)
-    print("Testing Error Recovery Parser")
+    print("Testing Parser (stops on first error)")
     print("=" * 60)
     print("\nTest Source:")
     print(test_source)
     print("\n" + "=" * 60)
-    print("Parsing with full error recovery...")
+    print("Parsing (stops on first error)...")
     print("=" * 60)
     
-    tree, errors = parse_with_full_recovery(test_source)
+    tree, errors = parse_with_errors(test_source)
     
     if errors:
         print(f"\nFound {len(errors)} error(s):\n")
@@ -78,7 +78,7 @@ love main() {
     print("\nError Source (missing semicolons):")
     print(error_source)
     
-    tree2, errors2 = parse_with_full_recovery(error_source)
+    tree2, errors2 = parse_with_errors(error_source)
     
     print(f"\nFound {len(errors2)} error(s):\n")
     for i, error in enumerate(errors2, 1):

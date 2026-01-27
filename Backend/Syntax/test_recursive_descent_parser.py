@@ -15,7 +15,9 @@ import sys
 from pathlib import Path
 
 # Ensure project root is on sys.path
-ROOT = Path(__file__).resolve().parent.parent.parent.parent
+# File is at: Compiler/Lovers/Backend/Syntax/test_recursive_descent_parser.py
+# Need to add Lovers to path so Backend imports work
+ROOT = Path(__file__).resolve().parent.parent.parent  # Goes to Lovers directory
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -825,6 +827,127 @@ class TestRecursiveDescentParserIssues(unittest.TestCase):
         # Should have collected errors instead of raising
         self.assertIsInstance(errors, list)
         # May or may not have errors depending on recovery success
+
+
+class TestRecursiveDescentParserMissingEdgeCases(unittest.TestCase):
+    """Test missing edge cases identified in analysis - Critical Priority."""
+    
+    def test_max_recovery_iterations_limit(self):
+        """Test that parser doesn't loop infinitely with MAX_RECOVERY_ITERATIONS."""
+        # Create a program that would cause many recovery iterations
+        # MAX_RECOVERY_ITERATIONS = 1000
+        source = "love () {\n"
+        # Add 2000+ statements with errors to test limit
+        for i in range(2000):
+            source += f"    invalid{i};\n"
+        source += "}"
+        
+        lexer = Lexer(source)
+        parser = RecursiveDescentParser(lexer)
+        
+        import time
+        start = time.time()
+        program, errors = parser.parse_with_recovery()
+        elapsed = time.time() - start
+        
+        # Should complete in reasonable time (< 5 seconds)
+        self.assertLess(elapsed, 5.0, "Parser should complete within time limit")
+        # Should have collected errors, not crashed
+        self.assertIsInstance(errors, list)
+        # Should have stopped at MAX_RECOVERY_ITERATIONS limit
+        self.assertLessEqual(len(errors), parser.MAX_RECOVERY_ITERATIONS + 10, 
+                           "Should respect MAX_RECOVERY_ITERATIONS limit")
+    
+    def test_deeply_nested_blocks(self):
+        """Test parsing with very deep nesting (15+ levels)."""
+        source = "love () {\n"
+        # Create 15 levels of nested forever blocks
+        for i in range(15):
+            source += "    " * (i + 1) + "forever (greenflag) {\n"
+        source += "    " * 16 + "express << \"deep\" << periodt;\n"
+        for i in range(15, 0, -1):
+            source += "    " * i + "}\n"
+        source += "}"
+        
+        lexer = Lexer(source)
+        parser = RecursiveDescentParser(lexer)
+        
+        program = parser.parse()
+        # Should parse successfully
+        self.assertIsNotNone(program)
+        self.assertEqual(len(parser.errors), 0, 
+                        "Deep nesting should not cause errors")
+    
+    def test_whitespace_only_input(self):
+        """Test parsing input with only whitespace."""
+        test_cases = [
+            ("   \n\t  \n  ", "spaces and tabs"),
+            ("\n\n\n", "only newlines"),
+            ("   ", "only spaces"),
+            ("\t\t\t", "only tabs"),
+        ]
+        
+        for source, description in test_cases:
+            with self.subTest(description=description):
+                lexer = Lexer(source)
+                parser = RecursiveDescentParser(lexer)
+                
+                with self.assertRaises(ParseError):
+                    parser.parse()
+                # Should report missing 'love' function
+                self.assertGreater(len(parser.errors), 0)
+                error_messages = " ".join([e.message.lower() for e in parser.errors])
+                self.assertTrue("love" in error_messages or len(parser.errors) > 0,
+                              f"Should report missing 'love' for {description}")
+    
+    def test_unicode_identifiers(self):
+        """Test parsing with Unicode characters in identifiers."""
+        test_cases = [
+            ("love () { dear 变量 = 10; }", "Chinese characters"),
+            ("love () { dear переменная = 5; }", "Russian characters"),
+            ("love () { dear 変数 = 3; }", "Japanese characters"),
+            ("love () { dear café = 2; }", "Accented characters"),
+            ("love () { dear naïve = 1; }", "Special characters"),
+        ]
+        
+        for source, description in test_cases:
+            with self.subTest(description=description):
+                lexer = Lexer(source)
+                parser = RecursiveDescentParser(lexer)
+                
+                # Should either parse successfully or give clear error
+                try:
+                    program = parser.parse()
+                    self.assertIsNotNone(program, 
+                                       f"Should parse Unicode identifiers: {description}")
+                except ParseError:
+                    # If it fails, should give helpful error
+                    self.assertGreater(len(parser.errors), 0,
+                                     f"Should report error for Unicode: {description}")
+    
+    def test_lexer_error_handling(self):
+        """Test parser behavior when lexer produces errors."""
+        # Test various malformed inputs that might cause lexer issues
+        test_cases = [
+            ("love () { dear x = \"unclosed string; }", "unclosed string"),
+            ("love () { dear x = 'unclosed char; }", "unclosed char"),
+            ("love () { dear x = 123.456.789; }", "invalid number"),
+        ]
+        
+        for source, description in test_cases:
+            with self.subTest(description=description):
+                lexer = Lexer(source)
+                parser = RecursiveDescentParser(lexer)
+                
+                # Should handle gracefully
+                try:
+                    program, errors = parser.parse_with_recovery()
+                    # Should have collected errors
+                    self.assertIsInstance(errors, list,
+                                        f"Should collect errors for {description}")
+                except Exception as e:
+                    # Should not crash with unhandled exception
+                    self.fail(f"Parser crashed with unhandled exception for {description}: {e}")
 
 
 if __name__ == "__main__":

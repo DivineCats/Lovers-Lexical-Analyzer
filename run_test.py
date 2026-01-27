@@ -9,7 +9,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from Backend.Syntax import parse_with_full_recovery, create_error_context
+from Backend.Syntax import parse_with_errors, create_error_context
 from test_cases import ALL_TEST_CASES
 
 def run_test(test_name: str, source: str):
@@ -20,10 +20,10 @@ def run_test(test_name: str, source: str):
     print("\nSource Code:")
     print(source)
     print("\n" + "=" * 70)
-    print("Parsing with error recovery...")
+    print("Parsing (stops on first error)...")
     print("=" * 70)
     
-    tree, errors = parse_with_full_recovery(source)
+    tree, errors = parse_with_errors(source)
     
     if errors:
         print(f"\n✓ Found {len(errors)} error(s):\n")
@@ -45,7 +45,7 @@ def run_test(test_name: str, source: str):
 def main():
     """Main test runner."""
     print("=" * 70)
-    print("ERROR RECOVERY TEST RUNNER")
+    print("PARSER TEST RUNNER (stops on first error)")
     print("=" * 70)
     print("\nAvailable test cases:")
     print()

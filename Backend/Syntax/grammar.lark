@@ -2,7 +2,6 @@
 // GRAMMAR FOR LOVERS LANGUAGE
 // =============================================================================
 // Uses custom Lexer.py for tokenization - terminals declared with %declare
-// Token names match what Lexer.py produces (simplified names)
 // =============================================================================
 
 // Declare keyword terminals (uppercase to match Lark's terminal naming convention)

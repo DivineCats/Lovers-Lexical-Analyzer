@@ -1,6 +1,16 @@
-# Backend/Syntax/RecursiveDescentParser.py
+# Backend/Syntax/SimpleRecursiveDescentParser.py
 """
-Recursive Descent Parser with AST for the L.O.V.E. language.
+Simple Recursive Descent Parser with AST for the L.O.V.E. language.
+
+STRICT CFG-ONLY COMPILER:
+- This parser enforces strict CFG compliance - any deviation from the grammar is a syntax error
+- It produces the FIRST error it encounters and stops parsing immediately
+- No error recovery or typo correction - code must match the CFG exactly
+- All syntax errors are reported with helpful messages indicating what was expected
+
+This is a simplified version without error recovery features.
+It includes all AST classes, parsing methods, and CFG rule comments from
+RecursiveDescentParser, but removes error recovery mechanisms.
 
 This is an alternative parser implementation using hand-written recursive descent
 parsing instead of Lark. It produces an Abstract Syntax Tree (AST) representation
@@ -299,7 +309,7 @@ class ParseError(Exception):
         self.column = token.column if token else 1
 
 
-class RecursiveDescentParser:
+class SimpleRecursiveDescentParser:
     """
     Hand-written Recursive Descent Parser for L.O.V.E. language.
     
@@ -322,7 +332,6 @@ class RecursiveDescentParser:
     }
     
     # Maximum iterations for error recovery to prevent infinite loops
-    MAX_RECOVERY_ITERATIONS = 1000
     
     def __init__(self, lexer: "Lexer"):
         """
@@ -382,63 +391,6 @@ class RecursiveDescentParser:
             raise ParseError(f"Parse errors:\n{error_msg}")
         
         return program
-    
-    def parse_with_recovery(self) -> tuple[Optional[Program], List[ParseError]]:
-        """
-        Parse the program with error recovery to collect multiple errors.
-        
-        Returns:
-            Tuple of (program, errors) where program may be None if parsing failed,
-            and errors is a list of all ParseError objects found.
-        """
-        # Import here to avoid circular dependency
-        from Backend.Lexical.Lexer import Token
-        
-        # Tokenize the entire source
-        self.tokens = []
-        try:
-            self.tokens = self.lexer.scan_tokens()
-        except Exception as e:
-            error = ParseError(f"Lexical error: {e}", None)
-            return None, [error]
-        
-        # Ensure EOF token exists
-        if not self.tokens or self.tokens[-1].kind != "EOF":
-            eof_token = Token(kind="EOF", lexeme="", line=self.tokens[-1].line if self.tokens else 1, column=1)
-            self.tokens.append(eof_token)
-        
-        self.current_index = 0
-        self.errors = []
-        
-        # Skip any leading whitespace
-        self._skip_whitespace()
-        
-        # Try to parse with recovery
-        program = None
-        try:
-            program = self._parse_program_with_recovery()
-        except ParseError:
-            # ParseError is already handled and added to self.errors
-            # Re-raise to let recovery mechanism handle it
-            raise
-        except (AttributeError, KeyError, IndexError, TypeError) as e:
-            # Common parser errors that should be caught and reported
-            error = ParseError(
-                f"Internal parser error: {type(e).__name__}: {e}",
-                self._current_token()
-            )
-            self.errors.append(error)
-        except Exception as e:
-            # Unexpected critical errors - re-raise to avoid hiding bugs
-            raise
-        
-        # Debug: Print errors collected
-        if len(self.errors) > 0:
-            print(f"[DEBUG parse_with_recovery] Collected {len(self.errors)} errors:", file=sys.stderr)
-            for i, err in enumerate(self.errors, 1):
-                print(f"  Error {i}: Line {err.line}:{err.column} - {err.message[:80]}", file=sys.stderr)
-        
-        return program, self.errors
     
     # =========================================================================
     # Token Management
@@ -517,7 +469,7 @@ class RecursiveDescentParser:
         
         return best_match if best_match else None
     
-    def _consume(self, expected_kind: str, error_msg: Optional[str] = None, context: Optional[str] = None, recover: bool = False) -> Optional["Token"]:
+    def _consume(self, expected_kind: str, error_msg: Optional[str] = None, context: Optional[str] = None) -> Optional["Token"]:
         """
         Consume token of expected kind with enhanced error messages.
         
@@ -525,21 +477,18 @@ class RecursiveDescentParser:
             expected_kind: Expected token kind
             error_msg: Custom error message
             context: Context about what we're parsing (e.g., "statement", "expression", "declaration")
-            recover: If True, record error and return None instead of raising (for error recovery)
             
         Returns:
-            The consumed token, or None if recover=True and token doesn't match
+            The consumed token
             
         Raises:
-            ParseError: If token doesn't match and recover=False
+            ParseError: If token doesn't match
         """
         token = self._current_token()
         if not token:
             msg = error_msg or f"Unexpected end of input, expected {expected_kind}"
             error = ParseError(msg, self.tokens[-1] if self.tokens else None)
-            if recover:
-                self.errors.append(error)
-                return None
+            self.errors.append(error)
             raise error
         
         if token.kind == expected_kind:
@@ -590,9 +539,6 @@ class RecursiveDescentParser:
         
         error = ParseError(msg, token)
         self.errors.append(error)
-        
-        if recover:
-            return None
         raise error
     
     def _get_cfg_suggestion(self, context: str, expected_kind: str) -> Optional[str]:
@@ -690,144 +636,6 @@ class RecursiveDescentParser:
             return possible
         
         return possible
-    
-    def _find_sync_point(self) -> bool:
-        """
-        Find synchronization point after an error (panic mode recovery).
-        Skips tokens until we find a safe point to resume parsing.
-        
-        Returns:
-            True if sync point found, False if we've reached EOF
-        """
-        # Sync points: semicolon, closing brace, keywords that start statements
-        sync_tokens = {"SEMICOLON", "RBRACE", "LBRACE"}
-        sync_keywords = {"love", "give", "overshare", "express", "forever", "while", 
-                        "pursue", "for", "comeback", "choose", "dear", "dearest", 
-                        "rant", "status", "avoidant"}
-        
-        while self._current_token() and self._current_token().kind != "EOF":
-            token = self._current_token()
-            
-            # Check for sync tokens
-            if token.kind in sync_tokens:
-                # Found a sync point - don't consume it, let the caller handle it
-                return True
-            
-            # Check for sync keywords
-            if token.kind in sync_keywords or (token.kind == "id" and token.lexeme.lower() in sync_keywords):
-                return True
-            
-            # Skip this token
-            self._advance()
-            self._skip_whitespace()
-        
-        return False
-    
-    def _analyze_brace_balance(self, start_index: Optional[int] = None) -> dict:
-        """
-        Analyze brace and parenthesis balance from current position (or start_index) to end.
-        
-        Returns a dictionary with:
-        - brace_depth: net brace depth (positive = more opening braces)
-        - paren_depth: net parenthesis depth
-        - bracket_depth: net bracket depth
-        - has_closing_brace: True if there's a closing brace that could match
-        - has_closing_paren: True if there's a closing paren that could match
-        
-        Args:
-            start_index: Optional starting token index (defaults to current_index)
-            
-        Returns:
-            Dictionary with balance information
-        """
-        if start_index is None:
-            start_index = self.current_index
-        
-        brace_depth = 0
-        paren_depth = 0
-        bracket_depth = 0
-        has_closing_brace = False
-        has_closing_paren = False
-        has_closing_bracket = False
-        
-        # Look ahead from start_index
-        for i in range(start_index, len(self.tokens)):
-            token = self.tokens[i]
-            if token.kind == "EOF":
-                break
-            
-            if token.kind == "LBRACE":
-                brace_depth += 1
-            elif token.kind == "RBRACE":
-                brace_depth -= 1
-                if brace_depth == 0:
-                    has_closing_brace = True
-            elif token.kind == "LPAREN":
-                paren_depth += 1
-            elif token.kind == "RPAREN":
-                paren_depth -= 1
-                if paren_depth == 0:
-                    has_closing_paren = True
-            elif token.kind == "LBRACKET":
-                bracket_depth += 1
-            elif token.kind == "RBRACKET":
-                bracket_depth -= 1
-                if bracket_depth == 0:
-                    has_closing_bracket = True
-        
-        return {
-            "brace_depth": brace_depth,
-            "paren_depth": paren_depth,
-            "bracket_depth": bracket_depth,
-            "has_closing_brace": has_closing_brace or brace_depth <= 0,
-            "has_closing_paren": has_closing_paren or paren_depth <= 0,
-            "has_closing_bracket": has_closing_bracket or bracket_depth <= 0,
-            "unbalanced_braces": brace_depth > 0,
-            "unbalanced_parens": paren_depth > 0,
-            "unbalanced_brackets": bracket_depth > 0
-        }
-    
-    def _find_matching_closing_brace(self, start_index: Optional[int] = None) -> Optional[int]:
-        """
-        Find the index of the matching closing brace for the brace at start_index.
-        Uses brace depth tracking to find the matching brace.
-        
-        Args:
-            start_index: Index of opening brace token (defaults to current_index)
-            
-        Returns:
-            Index of matching closing brace, or None if not found
-        """
-        if start_index is None:
-            start_index = self.current_index
-        
-        # If current token is not LBRACE, look for it
-        if start_index < len(self.tokens) and self.tokens[start_index].kind != "LBRACE":
-            # Look forward for next LBRACE
-            for i in range(start_index, len(self.tokens)):
-                if self.tokens[i].kind == "LBRACE":
-                    start_index = i
-                    break
-            else:
-                return None
-        
-        if start_index >= len(self.tokens) or self.tokens[start_index].kind != "LBRACE":
-            return None
-        
-        # Track depth to find matching closing brace
-        depth = 1
-        for i in range(start_index + 1, len(self.tokens)):
-            token = self.tokens[i]
-            if token.kind == "LBRACE":
-                depth += 1
-            elif token.kind == "RBRACE":
-                depth -= 1
-                if depth == 0:
-                    return i
-            elif token.kind == "EOF":
-                break
-        
-        return None
     
     def _format_expected_token(self, token_kind: str) -> str:
         """Format expected token kind for display."""
@@ -953,81 +761,20 @@ class RecursiveDescentParser:
                 opening_brace_index = i
                 break
         
-        # Try to parse function body - use recovery if there are errors
-        try:
-            main_body = self._parse_function_body()
-        except ParseError:
-            # If there were errors in the body, use recovery mode
-            # This helps prevent false "missing closing brace" errors
-            main_body = self._parse_function_body_with_recovery()
-            # Don't raise - continue to check for closing brace
-            # After recovery, make sure we advance past any remaining tokens
-            # to reach the closing brace if it exists
-            self._skip_whitespace()
+        main_body = self._parse_function_body()
         
-        # Check for missing closing brace with improved detection
-        # First, try to find the matching closing brace even if we're not at it
-        matching_brace_idx = None
-        if opening_brace_index is not None:
-            matching_brace_idx = self._find_matching_closing_brace(opening_brace_index)
-        
-        # Check if we already have errors about structural issues
-        has_structural_errors = any(
-            "expression" in e.message.lower() or 
-            "unexpected token" in e.message.lower() or
-            ("expected" in e.message.lower() and "brace" not in e.message.lower() and "parenthesis" not in e.message.lower())
-            for e in self.errors
-        )
-        
-        # Check current position first
-        if self._match("RBRACE"):
-            # We're already at the closing brace - consume it normally
-            self._consume("RBRACE", context="main function")
-        elif matching_brace_idx is not None:
-            # Found matching brace ahead - advance to it and consume it
-            # This handles cases where parser is at wrong position after errors
-            if self.current_index < matching_brace_idx:
-                # We're before the brace - advance to it
-                self.current_index = matching_brace_idx
-                # Now we should be at the brace
-                if self._match("RBRACE"):
-                    self._consume("RBRACE", context="main function")
-                else:
-                    # Something went wrong - brace should be here
-                    # Don't report error if we have structural errors (cascading)
-                    if not has_structural_errors:
-                        next_token = self._current_token()
-                        msg = f"Expected '}}' to close 'love () {{' function. Found '{next_token.lexeme if next_token else 'end of input'}' instead. Complete structure: love () {{ ... }}"
-                        error = ParseError(msg, next_token)
-                        self.errors.append(error)
-                        raise error
-        elif not self._match("RBRACE"):
-            # No matching brace found AND not at current position
-            # This is a real missing brace error
+        # Check for closing brace
+        if not self._match("RBRACE"):
             next_token = self._current_token()
-            
-            # Only report if we don't have structural errors (to avoid cascading)
-            if not has_structural_errors:
-                if next_token and next_token.kind != "EOF":
-                    msg = f"Expected '}}' to close 'love () {{' function. Found '{next_token.lexeme}' instead. Complete structure: love () {{ ... }}"
-                else:
-                    msg = "Expected '}' to close 'love () {' function. Reached end of input. Complete structure: love () { ... }"
-                error = ParseError(msg, next_token)
-                self.errors.append(error)
-                raise error
-            # Otherwise, don't report (likely cascading from structural error)
-            # Return what we have so far
-            return Program(
-                namespace=namespace,
-                global_declarations=global_decls,
-                sub_functions=sub_funcs,
-                main_function=main_func,
-                line=line,
-                column=col
-            )
-        else:
-            # Normal case - brace is there, consume it
-            self._consume("RBRACE", context="main function")
+            if next_token and next_token.kind != "EOF":
+                msg = f"Expected '}}' to close 'love () {{' function. Found '{next_token.lexeme}' instead. Complete structure: love () {{ ... }}"
+            else:
+                msg = "Expected '}' to close 'love () {' function. Reached end of input. Complete structure: love () { ... }"
+            error = ParseError(msg, next_token)
+            self.errors.append(error)
+            raise error
+        
+        self._consume("RBRACE", context="main function")
         
         main_func = MainFunction(body=main_body, line=line, column=col)
         
@@ -1038,537 +785,6 @@ class RecursiveDescentParser:
             main_function=main_func,
             line=line,
             column=col
-        )
-    
-    def _parse_program_with_recovery(self) -> Optional[Program]:
-        """
-        Parse program with error recovery to collect multiple errors.
-        """
-        line = self._current_token().line if self._current_token() else 1
-        col = self._current_token().column if self._current_token() else 1
-        
-        # Parse optional namespace (with recovery)
-        namespace = None
-        try:
-            namespace = self._parse_namespace()
-        except ParseError:
-            # Error already recorded, try to recover
-            self._find_sync_point()
-        
-        # Parse global declarations (with recovery)
-        global_decls = []
-        while not self._match("EOF"):
-            self._skip_whitespace()
-            if self._match("dear") or self._match("dearest") or self._match("rant") or \
-               self._match("status") or self._match("const"):
-                try:
-                    global_decls.append(self._parse_declaration())
-                except ParseError:
-                    # Error recorded, skip to next declaration or function
-                    if not self._find_sync_point():
-                        break
-            elif self._match("dear") or self._match("dearest") or self._match("rant") or \
-                 self._match("status") or self._match("avoidant") or self._match("love"):
-                # Start of function or main - break
-                break
-            else:
-                break
-        
-        # Parse sub functions (with recovery)
-        sub_funcs = []
-        while not self._match("EOF"):
-            self._skip_whitespace()
-            if self._match("dear") or self._match("dearest") or self._match("rant") or \
-               self._match("status") or self._match("avoidant"):
-                try:
-                    sub_funcs.append(self._parse_sub_function())
-                except ParseError:
-                    # Error recorded, skip to next function or main
-                    if not self._find_sync_point():
-                        break
-            elif self._match("love"):
-                # Start of main function - break
-                break
-            else:
-                break
-        
-        # Parse main function (with recovery)
-        main_func = None
-        try:
-            # Try to consume "love" - check for typo first
-            if self._match("id"):
-                # Might be a typo for "love"
-                suggestion = self._find_similar_keyword(self._current_token().lexeme)
-                if suggestion == "love":
-                    # It's a typo - record error and continue
-                    token = self._current_token()
-                    msg = f"Unexpected identifier '{token.lexeme}'. Did you mean 'love'?"
-                    error = ParseError(msg, token)
-                    self.errors.append(error)
-                    self._advance()  # Skip the typo
-                elif not self._match("love"):
-                    # Not love and not a typo - record error and try to recover
-                    token = self._current_token()
-                    msg = f"Expected 'love' keyword for main function, found '{token.lexeme}'"
-                    error = ParseError(msg, token)
-                    self.errors.append(error)
-                    if not self._find_sync_point():
-                        return None
-            elif not self._match("love"):
-                # Expected love but didn't find it
-                token = self._current_token()
-                if token:
-                    msg = f"Expected 'love' keyword for main function, found '{token.lexeme}'"
-                    error = ParseError(msg, token)
-                    self.errors.append(error)
-                if not self._find_sync_point():
-                    return None
-            
-            # Consume love if we have it
-            if self._match("love"):
-                self._consume("love")
-                
-                # Check if structure is incomplete and provide helpful suggestion
-                self._skip_whitespace()
-                if not self._match("LPAREN"):
-                    next_token = self._current_token()
-                    if next_token and next_token.kind != "EOF":
-                        msg = f"Expected '(' after 'love'. Complete structure: love () {{ ... }}"
-                    else:
-                        msg = "Expected '(' after 'love'. Complete structure: love () { ... }"
-                    error = ParseError(msg, next_token)
-                    self.errors.append(error)
-                    # Don't raise - let recovery continue
-            
-            # Try to parse main function structure - use recovery mode
-            # After detecting typo for "love", we should still try to parse the function
-            # Skip whitespace in case there are newlines
-            self._skip_whitespace()
-            
-            # Debug: Check what token we're at after skipping "loe"
-            current = self._current_token()
-            if current:
-                print(f"[DEBUG _parse_program_with_recovery] After 'loe' typo, current token: {current.kind} '{current.lexeme}' (line {current.line})", file=sys.stderr)
-            
-            # Try to parse () { } structure - use try/except for each part
-            if self._match("LPAREN"):
-                print(f"[DEBUG _parse_program_with_recovery] Found LPAREN, continuing to parse function", file=sys.stderr)
-                try:
-                    self._consume("LPAREN")
-                except ParseError:
-                    # Error recorded, try to continue anyway
-                    pass
-                
-                self._skip_whitespace()
-                try:
-                    self._consume("RPAREN")
-                except ParseError:
-                    # Error recorded, try to continue
-                    pass
-                
-                self._skip_whitespace()
-                if self._match("LBRACE"):
-                    print(f"[DEBUG _parse_program_with_recovery] Found LBRACE, entering function body", file=sys.stderr)
-                    try:
-                        self._consume("LBRACE")
-                        self._skip_whitespace()
-                        # Parse function body with recovery (this will collect multiple errors)
-                        # This is the key - it should detect expess error here
-                        # Even if there are errors, we want to continue parsing to find more
-                        main_body = self._parse_function_body_with_recovery()
-                        self._skip_whitespace()
-                        if self._match("RBRACE"):
-                            try:
-                                self._consume("RBRACE")
-                                main_func = MainFunction(body=main_body, line=line, column=col)
-                            except ParseError:
-                                # Error recorded, but we still have the body
-                                main_func = MainFunction(body=main_body, line=line, column=col)
-                        else:
-                            # Missing closing brace for main function
-                            next_token = self._current_token()
-                            if next_token and next_token.kind != "EOF":
-                                msg = f"Expected '}}' to close 'love () {{' function. Found '{next_token.lexeme}' instead"
-                            else:
-                                msg = "Expected '}' to close 'love () {' function. Reached end of input"
-                            error = ParseError(msg, next_token)
-                            self.errors.append(error)
-                            # Still create the function with the body we parsed
-                            main_func = MainFunction(body=main_body, line=line, column=col)
-                    except ParseError as e:
-                        # Error in function body already recorded
-                        print(f"[DEBUG _parse_program_with_recovery] Exception in function body: {e}", file=sys.stderr)
-                        # But we should still try to create a body if we can
-                        # The errors are already in self.errors, so we can continue
-                        try:
-                            # Try to parse body again (errors already recorded)
-                            main_body = self._parse_function_body_with_recovery()
-                            main_func = MainFunction(body=main_body, line=line, column=col)
-                        except:
-                            # If we can't parse body at all, create empty body
-                            # Errors are already recorded
-                            main_body = FunctionBody(
-                                local_declarations=[],
-                                statements=[],
-                                line=line,
-                                column=col
-                            )
-                            main_func = MainFunction(body=main_body, line=line, column=col)
-                else:
-                    # Missing opening brace after love ()
-                    next_token = self._current_token()
-                    if next_token and next_token.kind != "EOF":
-                        msg = f"Expected '{{' after 'love ()'. Found '{next_token.lexeme}' instead. Complete structure: love () {{ ... }}"
-                    else:
-                        msg = "Expected '{' after 'love ()'. Complete structure: love () { ... }"
-                    error = ParseError(msg, next_token)
-                    self.errors.append(error)
-                    # Try to continue parsing anyway (might find more errors)
-                    # But we can't create a proper function without the opening brace
-            else:
-                # No LPAREN found after love
-                print(f"[DEBUG _parse_program_with_recovery] No LPAREN found after 'love'. Current token: {self._current_token().kind if self._current_token() else 'None'}", file=sys.stderr)
-        except ParseError:
-            # Error already recorded
-            pass
-        
-        if main_func is None:
-            return None
-        
-        # Check if there's unexpected code after the main function
-        # (should only be EOF after love () { ... })
-        self._skip_whitespace()
-        next_token = self._current_token()
-        if next_token and next_token.kind != "EOF":
-            # There's code after the main function - this is invalid
-            # Check if it looks like it should be inside the function body
-            if (next_token.kind in ["dear", "dearest", "rant", "status"] or
-                next_token.kind == "id" or
-                next_token.kind in ["express", "give", "overshare", "forever", "while", "pursue", "for", "comeback", "choose"]):
-                msg = f"Unexpected code after 'love () {{ ... }}' function. Code like '{next_token.lexeme}' should be inside the function body. Did you accidentally close the function too early?"
-            else:
-                msg = f"Unexpected token '{next_token.lexeme}' after 'love () {{ ... }}' function. Only EOF expected after main function."
-            error = ParseError(msg, next_token)
-            self.errors.append(error)
-        
-        return Program(
-            namespace=namespace,
-            global_declarations=global_decls,
-            sub_functions=sub_funcs,
-            main_function=main_func,
-            line=line,
-            column=col
-        )
-    
-    def _parse_function_body_with_recovery(self) -> FunctionBody:
-        """Parse function body with error recovery."""
-        token = self._current_token()
-        
-        # Debug: Log entry
-        if token:
-            print(f"[DEBUG _parse_function_body_with_recovery] Entering function body at token: {token.kind} '{token.lexeme}' (line {token.line})", file=sys.stderr)
-        
-        # Parse local declarations (with recovery)
-        local_decls = []
-        while self._match("dear") or self._match("dearest") or \
-              self._match("rant") or self._match("status"):
-            try:
-                local_decls.append(self._parse_local_declaration())
-                self._skip_whitespace()
-            except ParseError:
-                # Error recorded, skip to next declaration or statement
-                if not self._find_sync_point():
-                    break
-        
-        # Parse statements (with recovery)
-        statements = []
-        max_iterations = self.MAX_RECOVERY_ITERATIONS
-        iteration = 0
-        
-        # Track brace depth to know when we've reached the function body's closing brace
-        # We start at depth 0 (we're inside the function body's opening brace)
-        # Note: When statements parse nested blocks (like forever { ... }), they consume
-        # the braces internally, so we won't see them here. But during error recovery,
-        # we might skip tokens and see braces, so we need to track them.
-        brace_depth = 0
-        
-        while not self._match("EOF") and iteration < max_iterations:
-            iteration += 1
-            self._skip_whitespace()
-            
-            # Check if we've reached the function body's closing brace
-            # (only stop if brace_depth == 0, meaning we're at the top level)
-            if self._match("RBRACE") and brace_depth == 0:
-                break
-            
-            current_token = self._current_token()
-            if current_token:
-                print(f"[DEBUG _parse_function_body_with_recovery] Attempting to parse statement: {current_token.kind} '{current_token.lexeme}' (line {current_token.line})", file=sys.stderr)
-            
-            # Try to parse a statement
-            # Note: When statements parse successfully (e.g., forever { ... }), they consume
-            # their own braces internally, so we stay at brace_depth == 0.
-            # We only need to track depth during error recovery when we skip tokens.
-            try:
-                stmt = self._parse_statement()
-                if stmt:
-                    statements.append(stmt)
-                    self._skip_whitespace()
-                    # After successfully parsing a statement, we're back at top level
-                    # (brace_depth should still be 0, but reset it to be safe)
-                    brace_depth = 0
-                else:
-                    # No statement could be parsed - might be an error
-                    # Don't skip immediately - the error might have been recorded in _parse_statement
-                    # Just advance to next token to avoid infinite loop
-                    if self._current_token():
-                        self._advance()
-                    else:
-                        break
-            except ParseError as e:
-                # Error already recorded in self.errors - this is good!
-                print(f"[DEBUG _parse_function_body_with_recovery] Caught ParseError. Error count in self.errors: {len(self.errors)}", file=sys.stderr)
-                print(f"[DEBUG _parse_function_body_with_recovery] Error message: {e.message[:60]}", file=sys.stderr)
-                # Verify the error is actually in self.errors
-                if len(self.errors) == 0:
-                    print(f"[DEBUG _parse_function_body_with_recovery] WARNING: Error was raised but NOT in self.errors! Adding it now.", file=sys.stderr)
-                    self.errors.append(e)
-                
-                # Check if the error is about a structural issue (expression, braces, etc.)
-                # vs a missing semicolon. Don't report "missing semicolon" if error was structural.
-                error_message_lower = e.message.lower()
-                # Check if this is a typo error - if so, skip to sync point without generating more errors
-                error_is_typo = "did you mean" in error_message_lower
-                error_is_structural = (
-                    "expression" in error_message_lower or
-                    "unexpected token" in error_message_lower or
-                    "expected" in error_message_lower and "semicolon" not in error_message_lower or
-                    "brace" in error_message_lower or
-                    "parenthesis" in error_message_lower or
-                    "missing" in error_message_lower and "semicolon" not in error_message_lower
-                )
-                error_is_about_semicolon = "semicolon" in error_message_lower
-                
-                # Now we need to recover by skipping to the next statement
-                # Look for semicolon (statement end) - this is the best sync point
-                found_sync = False
-                
-                # Look for semicolon (statement end) - this is the best sync point
-                # Track the position where we started looking (for missing semicolon error)
-                sync_start_token = self._current_token()
-                found_semicolon = False
-                
-                # Check if sync_start_token is a statement starter (doesn't need semicolon before it)
-                statement_starters = {"forever", "while", "for", "pursue", "choose", "express", "give", "overshare", "comeback"}
-                sync_is_statement_starter = (
-                    sync_start_token and 
-                    (sync_start_token.kind in statement_starters or 
-                     (sync_start_token.kind == "id" and sync_start_token.lexeme.lower() in statement_starters))
-                )
-                
-                # Track brace depth to avoid stopping at nested closing braces
-                # Use the outer loop's brace_depth variable, starting from its current value
-                # Since we're recovering from an error, we might be inside a nested block.
-                
-                # If this is a typo error, skip the typo token first to avoid generating more errors
-                if error_is_typo and self._current_token() and self._current_token().kind == "id":
-                    # Skip the typo identifier token
-                    self._advance()
-                    self._skip_whitespace()
-                
-                while self._current_token() and self._current_token().kind != "EOF":
-                    current_token = self._current_token()
-                    
-                    # Track brace depth as we scan during recovery (update outer loop's brace_depth)
-                    if current_token.kind == "LBRACE":
-                        brace_depth += 1
-                    elif current_token.kind == "RBRACE":
-                        if brace_depth > 0:
-                            # This is closing a nested block, continue looking
-                            brace_depth -= 1
-                        elif brace_depth == 0:
-                            # This is the function body's closing brace - stop here
-                            # Don't advance, let the outer loop handle it
-                            found_sync = True
-                            break
-                    
-                    # Look for sync points at top level (brace_depth == 0)
-                    if current_token.kind == "SEMICOLON" and brace_depth == 0:
-                        # Found semicolon at top level - consume it and continue to next statement
-                        print(f"[DEBUG _parse_function_body_with_recovery] Found semicolon, consuming and continuing", file=sys.stderr)
-                        self._advance()
-                        found_sync = True
-                        found_semicolon = True
-                        break
-                    elif current_token.kind in {"express", "give", "overshare", "forever", 
-                                                "while", "pursue", "for", "comeback", "choose"} and brace_depth == 0:
-                        # Found next statement keyword at top level
-                        # Only report missing semicolon error if:
-                        # 1. We haven't already found/reported one
-                        # 2. The original error was NOT about a structural issue (expression, braces, etc.)
-                        # 3. The sync_start_token is NOT a statement starter (statement starters don't need semicolons before them)
-                        # 4. The original error was NOT already about a semicolon
-                        # 5. The original error was NOT a typo error (prioritize typo completion first)
-                        should_report_missing_semicolon = (
-                            not found_semicolon and 
-                            sync_start_token and 
-                            not error_is_structural and 
-                            not error_is_about_semicolon and
-                            not sync_is_statement_starter and
-                            not error_is_typo  # Don't report additional errors after typo
-                        )
-                        if should_report_missing_semicolon:
-                            missing_semicolon_error = ParseError(
-                                f"Missing semicolon. Expected ';' before '{current_token.lexeme}'",
-                                sync_start_token
-                            )
-                            self.errors.append(missing_semicolon_error)
-                            print(f"[DEBUG _parse_function_body_with_recovery] Added missing semicolon error before keyword. Total errors: {len(self.errors)}", file=sys.stderr)
-                        # Stop here (don't consume, let next iteration handle it)
-                        found_sync = True
-                        break
-                    elif current_token.kind in {"more", "forevermore"} and brace_depth == 0:
-                        # These are part of a forever/forevermore chain, not new statements
-                        # Skip past the entire block (more { ... } or forevermore (...) { ... })
-                        # to find the end of the chain
-                        if current_token.kind == "more":
-                            # Skip "more" and its block
-                            self._advance()  # Skip "more"
-                            self._skip_whitespace()
-                            if self._match("LBRACE"):
-                                self._advance()  # Skip "{"
-                                # Skip the body until we find the closing brace
-                                block_depth = 1
-                                while block_depth > 0 and self._current_token() and self._current_token().kind != "EOF":
-                                    if self._current_token().kind == "LBRACE":
-                                        block_depth += 1
-                                    elif self._current_token().kind == "RBRACE":
-                                        block_depth -= 1
-                                    self._advance()
-                                self._skip_whitespace()
-                        elif current_token.kind == "forevermore":
-                            # Skip "forevermore (expr) { ... }"
-                            self._advance()  # Skip "forevermore"
-                            self._skip_whitespace()
-                            if self._match("LPAREN"):
-                                # Skip until matching RPAREN
-                                self._advance()
-                                paren_depth = 1
-                                while paren_depth > 0 and self._current_token() and self._current_token().kind != "EOF":
-                                    if self._current_token().kind == "LPAREN":
-                                        paren_depth += 1
-                                    elif self._current_token().kind == "RPAREN":
-                                        paren_depth -= 1
-                                    self._advance()
-                                self._skip_whitespace()
-                                if self._match("LBRACE"):
-                                    self._advance()  # Skip "{"
-                                    # Skip the body until we find the closing brace
-                                    block_depth = 1
-                                    while block_depth > 0 and self._current_token() and self._current_token().kind != "EOF":
-                                        if self._current_token().kind == "LBRACE":
-                                            block_depth += 1
-                                        elif self._current_token().kind == "RBRACE":
-                                            block_depth -= 1
-                                        self._advance()
-                                    self._skip_whitespace()
-                        # After skipping the block, we've finished the forever chain
-                        # Continue to next iteration of outer loop (which will check for RBRACE)
-                        found_sync = True
-                        break
-                    elif current_token.kind == "id" and brace_depth == 0:
-                        # Check if this identifier might be a typo for "more" or "forevermore"
-                        peek = self._peek_token()
-                        if peek and (peek.kind == "LBRACE" or peek.kind == "LPAREN"):
-                            suggestion = self._find_similar_keyword(current_token.lexeme)
-                            if suggestion in {"more", "forevermore"}:
-                                # It's a typo for "more" or "forevermore" - report error and skip
-                                typo_error = ParseError(
-                                    f"Unexpected identifier '{current_token.lexeme}'. Did you mean '{suggestion}'?",
-                                    current_token
-                                )
-                                self.errors.append(typo_error)
-                                # Skip the typo and its block (same logic as above)
-                                self._advance()  # Skip the typo identifier
-                                if suggestion == "more":
-                                    # Handle as "more { ... }"
-                                    if self._match("LBRACE"):
-                                        self._advance()  # Skip "{"
-                                        block_depth = 1
-                                        while block_depth > 0 and self._current_token() and self._current_token().kind != "EOF":
-                                            if self._current_token().kind == "LBRACE":
-                                                block_depth += 1
-                                            elif self._current_token().kind == "RBRACE":
-                                                block_depth -= 1
-                                            self._advance()
-                                        self._skip_whitespace()
-                                elif suggestion == "forevermore":
-                                    # Handle as "forevermore (expr) { ... }"
-                                    if self._match("LPAREN"):
-                                        self._advance()
-                                        paren_depth = 1
-                                        while paren_depth > 0 and self._current_token() and self._current_token().kind != "EOF":
-                                            if self._current_token().kind == "LPAREN":
-                                                paren_depth += 1
-                                            elif self._current_token().kind == "RPAREN":
-                                                paren_depth -= 1
-                                            self._advance()
-                                        self._skip_whitespace()
-                                        if self._match("LBRACE"):
-                                            self._advance()
-                                            block_depth = 1
-                                            while block_depth > 0 and self._current_token() and self._current_token().kind != "EOF":
-                                                if self._current_token().kind == "LBRACE":
-                                                    block_depth += 1
-                                                elif self._current_token().kind == "RBRACE":
-                                                    block_depth -= 1
-                                                self._advance()
-                                            self._skip_whitespace()
-                                found_sync = True
-                                break
-                    
-                    # Skip this token and continue looking
-                    self._advance()
-                    self._skip_whitespace()
-                
-                if not found_sync:
-                    # No sync point found - reached EOF
-                    # If we didn't find a semicolon, report missing semicolon error
-                    # Only if:
-                    # 1. We haven't already reported one
-                    # 2. The original error was NOT about a structural issue
-                    # 3. The sync_start_token is NOT a statement starter
-                    # 4. The original error was NOT already about a semicolon
-                    # 5. The original error was NOT a typo error (prioritize typo completion first)
-                    should_report_missing_semicolon = (
-                        not found_semicolon and 
-                        sync_start_token and 
-                        not error_is_structural and 
-                        not error_is_about_semicolon and
-                        not sync_is_statement_starter and
-                        not error_is_typo  # Don't report additional errors after typo
-                    )
-                    if should_report_missing_semicolon:
-                        missing_semicolon_error = ParseError(
-                            f"Missing semicolon. Expected ';' before end of input",
-                            sync_start_token
-                        )
-                        self.errors.append(missing_semicolon_error)
-                        print(f"[DEBUG _parse_function_body_with_recovery] Added missing semicolon error at EOF. Total errors: {len(self.errors)}", file=sys.stderr)
-                    break
-        
-        # Before returning, make sure we're positioned correctly
-        # If we're at the closing brace, DON'T advance past it - let _parse_program() consume it
-        # This ensures proper brace tracking
-        self._skip_whitespace()
-        
-        print(f"[DEBUG _parse_function_body_with_recovery] Exiting function body. Collected {len(self.errors)} total errors so far", file=sys.stderr)
-        print(f"[DEBUG _parse_function_body_with_recovery] Current token: {self._current_token().kind if self._current_token() else 'None'}", file=sys.stderr)
-        return FunctionBody(
-            local_declarations=local_decls,
-            statements=statements,
-            line=token.line if token else 1,
-            column=token.column if token else 1
         )
     
     def _parse_namespace(self) -> Optional[Namespace]:
@@ -1911,6 +1127,15 @@ class RecursiveDescentParser:
             return self._parse_output_statement()
         elif self._match("forever"):
             return self._parse_if_statement()
+        elif self._match("forevermore"):
+            # STRICT CFG: "forevermore" can only appear after "forever" as an elif clause
+            # If it appears as a standalone statement, this is a syntax error
+            error = ParseError(
+                f"Syntax error: 'forevermore' can only appear after 'forever' as an elif clause. Found 'forevermore' as a standalone statement, which violates the CFG.",
+                token
+            )
+            self.errors.append(error)
+            raise error
         elif self._match("while"):
             return self._parse_while_statement()
         elif self._match("pursue"):
@@ -1922,32 +1147,70 @@ class RecursiveDescentParser:
         elif self._match("choose"):
             return self._parse_switch_statement()
         elif self._match("id"):
-            # Check if this identifier is a typo for a statement keyword
+            # First check: identifier followed by << is ALWAYS invalid syntax (CFG Rule 67 requires "express" keyword)
+            peek = self._peek_token()
+            if peek and peek.kind == "OP_LSHIFT":
+                # An identifier followed by << is invalid - must be "express" keyword
+                suggestion = self._find_similar_keyword(token.lexeme)
+                if suggestion == "express":
+                    error = ParseError(
+                        f"Syntax error: Unexpected identifier '{token.lexeme}'. Did you mean 'express'? (Found '<<' which requires the 'express' keyword)",
+                        token
+                    )
+                    self.errors.append(error)
+                    raise error
+                else:
+                    # Not detected as typo, but still invalid syntax
+                    error = ParseError(
+                        f"Syntax error: Unexpected identifier '{token.lexeme}' followed by '<<'. Expected 'express' keyword for output statement (CFG Rule 67)",
+                        token
+                    )
+                    self.errors.append(error)
+                    raise error
+            
+            # Check if this identifier is a typo for a statement keyword - strict CFG matching
             suggestion = self._find_similar_keyword(token.lexeme)
             if suggestion == "forever":
-                # Typo for "forever" (if statement) - report error and stop parsing
-                # Don't continue parsing to avoid cascading errors
+                # Typo for "forever" (if statement) - syntax error
                 error = ParseError(
                     f"Unexpected identifier '{token.lexeme}'. Did you mean 'forever'?",
                     token
                 )
                 self.errors.append(error)
-                # Raise error to stop parsing - let recovery skip to next sync point
+                raise error
+            elif suggestion == "forevermore":
+                # Typo for "forevermore" (elif clause) - this should be handled in _parse_if_statement
+                # But if we're here, it means we're not in an if statement context
+                # Report error and stop
+                error = ParseError(
+                    f"Unexpected identifier '{token.lexeme}'. Did you mean 'forevermore'? (Note: 'forevermore' can only appear after 'forever')",
+                    token
+                )
+                self.errors.append(error)
                 raise error
             elif suggestion == "choose":
                 # Typo for "choose" (switch statement) - report error and stop parsing
-                # Don't continue parsing to avoid cascading errors
                 error = ParseError(
                     f"Unexpected identifier '{token.lexeme}'. Did you mean 'choose'?",
                     token
                 )
                 self.errors.append(error)
-                # Raise error to stop parsing - let recovery skip to next sync point
                 raise error
             else:
                 # Not a typo for a statement keyword, treat as regular identifier statement
                 peek = self._peek_token()
-                print(f"[DEBUG _parse_statement] Calling _parse_id_statement for '{token.lexeme}'. Peek token: {peek.kind if peek else 'None'} '{peek.lexeme if peek else ''}'", file=sys.stderr)
+                if peek and peek.kind == "LPAREN":
+                    # Identifier followed by ( - could be a function call or typo for forevermore
+                    # Check if it's a typo for forevermore (elif clause)
+                    suggestion = self._find_similar_keyword(token.lexeme)
+                    if suggestion == "forevermore":
+                        # This looks like it should be an elif clause, but we're not in an if statement
+                        error = ParseError(
+                            f"Unexpected identifier '{token.lexeme}'. Did you mean 'forevermore'? (Note: 'forevermore' can only appear after 'forever')",
+                            token
+                        )
+                        self.errors.append(error)
+                        raise error
                 return self._parse_id_statement()
         elif self._match("OP_INC") or self._match("OP_DEC"):
             return self._parse_unary_statement()
@@ -1984,9 +1247,54 @@ class RecursiveDescentParser:
         token = self._consume("id")
         identifier = token.lexeme
         
-        # Check for common typos: if identifier is followed by <<, it might be a typo for "express"
+        # Check for common typos before parsing
         peek = self._peek_token()
-        print(f"[DEBUG _parse_id_statement] After consuming '{identifier}', peek token: {peek.kind if peek else 'None'} '{peek.lexeme if peek else ''}'", file=sys.stderr)
+        if peek and peek.kind == "LPAREN":
+            # Identifier followed by ( - check if it's a typo for "forevermore" (elif clause)
+            suggestion = self._find_similar_keyword(identifier)
+            if suggestion == "forevermore":
+                # This is a typo for "forevermore" but we're not in an if statement context
+                # This means it's appearing where a statement is expected, not as an elif clause
+                error = ParseError(
+                    f"Unexpected identifier '{identifier}'. Did you mean 'forevermore'? (Note: 'forevermore' can only appear after 'forever' as an elif clause)",
+                    token
+                )
+                self.errors.append(error)
+                raise error
+            
+            # Also check if it looks like "forevermore" even if not detected by Levenshtein
+            # "foreerore" might be too far from "forevermore" in edit distance (max_distance=2)
+            # Check for patterns that suggest it's a typo for "forevermore"
+            id_lower = identifier.lower()
+            # Calculate Levenshtein distance manually with higher threshold for "forevermore"
+            def levenshtein(s1: str, s2: str) -> int:
+                if len(s1) < len(s2):
+                    return levenshtein(s2, s1)
+                if len(s2) == 0:
+                    return len(s1)
+                previous_row = list(range(len(s2) + 1))
+                for i, c1 in enumerate(s1):
+                    current_row = [i + 1]
+                    for j, c2 in enumerate(s2):
+                        insertions = previous_row[j + 1] + 1
+                        deletions = current_row[j] + 1
+                        substitutions = previous_row[j] + (c1 != c2)
+                        current_row.append(min(insertions, deletions, substitutions))
+                    previous_row = current_row
+                return previous_row[-1]
+            
+            # Check if identifier looks like "forevermore" (starts with "fore" and is long enough)
+            if id_lower.startswith("fore") and len(id_lower) >= 8:
+                distance = levenshtein(id_lower, "forevermore")
+                if distance <= 5:  # Higher threshold for "forevermore" typos (was 2, now 5)
+                    error = ParseError(
+                        f"Unexpected identifier '{identifier}'. Did you mean 'forevermore'? (Note: 'forevermore' can only appear after 'forever' as an elif clause)",
+                        token
+                    )
+                    self.errors.append(error)
+                    raise error
+        
+        # Check for common typos: if identifier is followed by <<, it might be a typo for "express"
         if peek and peek.kind == "OP_LSHIFT":
             # This looks like it should be an output statement
             # An identifier followed by << is not a valid statement - it should be "express <<"
@@ -2335,44 +1643,18 @@ class RecursiveDescentParser:
                 opening_brace_index = i
                 break
         
-        # Use recovery version for nested bodies so errors don't break the entire chain
-        try:
-            then_body = self._parse_function_body()
-        except ParseError:
-            # Error in then body - use recovery version
-            then_body = self._parse_function_body_with_recovery()
-        
-        # Check for closing brace with better detection
+        then_body = self._parse_function_body()
+        # Check for closing brace
         if not self._match("RBRACE"):
-            # Try to find matching closing brace
-            matching_brace_idx = None
-            if opening_brace_index is not None:
-                matching_brace_idx = self._find_matching_closing_brace(opening_brace_index)
-            
-            if matching_brace_idx is not None:
-                # Found it - advance to it and consume
-                self.current_index = matching_brace_idx
-                self._advance()
-            else:
-                # No matching brace - check if we have structural errors
-                has_structural_errors = any(
-                    "expression" in e.message.lower() or 
-                    "unexpected token" in e.message.lower()
-                    for e in self.errors
-                )
-                if not has_structural_errors:
-                    # Report error only if no structural errors (to avoid cascading)
-                    next_token = self._current_token()
-                    error = ParseError(
-                        f"Expected '}}' to close 'forever () {{' block. Found '{next_token.lexeme if next_token else 'end of input'}' instead. Complete structure: forever (<expr>) {{ ... }}",
-                        next_token
-                    )
-                    self.errors.append(error)
-                    raise error
-                # Otherwise, don't report (likely cascading from structural error)
-        else:
-            # Normal case - brace is there, consume it
-            self._consume("RBRACE")
+            next_token = self._current_token()
+            error = ParseError(
+                f"Expected '}}' to close 'forever () {{' block. Found '{next_token.lexeme if next_token else 'end of input'}' instead. Complete structure: forever (<expr>) {{ ... }}",
+                next_token
+            )
+            self.errors.append(error)
+            raise error
+        
+        self._consume("RBRACE")
         self._skip_whitespace()  # Skip whitespace after closing brace
         
         # Parse elif clauses
@@ -2419,13 +1701,7 @@ class RecursiveDescentParser:
             self._consume("RPAREN", "Expected ')' to close 'forevermore ('. Complete structure: forevermore (<expr>) { ... }")
             self._consume("LBRACE", "Expected '{' after 'forevermore ()'. Complete structure: forevermore (<expr>) { ... }")
             self._skip_whitespace()
-            # Use recovery version for nested bodies so errors don't break the entire chain
-            try:
-                elif_body = self._parse_function_body()
-            except ParseError:
-                # Error in elif body - use recovery version
-                elif_body = self._parse_function_body_with_recovery()
-            self._consume("RBRACE", "Expected '}' to close 'forevermore () {' block. Complete structure: forevermore (<expr>) { ... }")
+            elif_body = self._parse_function_body()
             self._skip_whitespace()  # Skip whitespace after closing brace
             elif_clauses.append(ElifClause(
                 condition=elif_condition,
@@ -2440,13 +1716,7 @@ class RecursiveDescentParser:
             self._consume("more")
             self._consume("LBRACE")
             self._skip_whitespace()
-            # Use recovery version for nested bodies so errors don't break the entire chain
-            try:
-                else_body = self._parse_function_body()
-            except ParseError:
-                # Error in else body - use recovery version
-                else_body = self._parse_function_body_with_recovery()
-            self._consume("RBRACE")
+            else_body = self._parse_function_body()
         elif self._match("id"):
             # Check if this identifier is a typo for "more"
             current_token = self._current_token()
@@ -2468,8 +1738,7 @@ class RecursiveDescentParser:
                     try:
                         else_body = self._parse_function_body()
                     except ParseError:
-                        else_body = self._parse_function_body_with_recovery()
-                    self._consume("RBRACE")
+                        else_body = self._parse_function_body()
                 else:
                     # Typo but wrong structure - report additional error
                     next_token = self._current_token()
@@ -3025,37 +2294,67 @@ def parse_from_source(source: str) -> Program:
     from Backend.Lexical.Lexer import Lexer
     
     lexer = Lexer(source)
-    parser = RecursiveDescentParser(lexer)
+    parser = SimpleRecursiveDescentParser(lexer)
     return parser.parse()
 
 
-def parse_with_errors_rd(source: str) -> tuple[Optional[Program], List]:
+def get_simple_parser(source: str) -> SimpleRecursiveDescentParser:
     """
-    Parse source code with error collection and recovery (compatible with existing API).
-    Collects multiple errors in a single parse attempt.
+    Get or create a simple parser instance for the given source.
+    
+    Note: Unlike get_parser() for Lark, this creates a new parser each time
+    since it needs a lexer initialized with the source.
+    
+    Args:
+        source: The source code to parse.
+        
+    Returns:
+        A SimpleRecursiveDescentParser instance.
+    """
+    # Import here to avoid circular dependency
+    from Backend.Lexical.Lexer import Lexer
+    
+    lexer = Lexer(source)
+    return SimpleRecursiveDescentParser(lexer)
+
+
+def parse_with_errors_simple_rd(source: str) -> tuple[Optional[Program], List]:
+    """
+    Parse source code with error collection (compatible with existing API).
+    Returns only the first error encountered (simple parser stops at first error).
     
     Args:
         source: Source code string
         
     Returns:
         Tuple of (program, errors) where program is None if parsing failed,
-        and errors is a list of SyntaxError-compatible objects.
+        and errors is a list containing only the first SyntaxError encountered.
     """
     # Import here to avoid circular dependency
     from Backend.Lexical.Lexer import Lexer
     from Backend.Syntax.errors import SyntaxError
     
     lexer = Lexer(source)
-    parser = RecursiveDescentParser(lexer)
+    parser = SimpleRecursiveDescentParser(lexer)
     
-    # Use recovery mode to collect multiple errors
-    program, parse_errors = parser.parse_with_recovery()
-    
-    # Convert ParseError objects to SyntaxError format
-    syntax_errors = []
-    for parse_error in parse_errors:
+    # Use parse() - errors are collected in parser.errors
+    try:
+        program = parser.parse()
+        # If parsing succeeded, return no errors
+        return program, []
+    except ParseError as e:
+        # Get the first error (the one that was raised)
+        # If there are errors in parser.errors, use the first one
+        # Otherwise, use the exception that was raised
+        if parser.errors:
+            parse_error = parser.errors[0]  # Get only the first error
+        else:
+            # Create ParseError from the exception
+            parse_error = e
+        
+        # Convert to SyntaxError format
         syntax_error = SyntaxError(
-            message=parse_error.message,  # Use the enhanced message with suggestions
+            message=parse_error.message,
             line=parse_error.line,
             column=parse_error.column,
             expected=[],
@@ -3063,12 +2362,6 @@ def parse_with_errors_rd(source: str) -> tuple[Optional[Program], List]:
             raw_message=parse_error.message,
             is_end_of_input=parse_error.token is None or (parse_error.token and parse_error.token.kind == "EOF")
         )
-        syntax_errors.append(syntax_error)
-    
-    # Debug: Print all errors to console (can be removed later)
-    if len(syntax_errors) > 0:
-        print(f"[DEBUG parse_with_errors_rd] Collected {len(syntax_errors)} errors:", file=sys.stderr)
-        for i, err in enumerate(syntax_errors, 1):
-            print(f"  Error {i}: Line {err.line}:{err.column} - {err.message[:100]}", file=sys.stderr)
-    
-    return program, syntax_errors
+        
+        # Return only the first error
+        return None, [syntax_error]

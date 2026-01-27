@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import List, Optional, Union, TYPE_CHECKING
 from dataclasses import dataclass, field
+import sys
 
 # Avoid circular import by using TYPE_CHECKING
 if TYPE_CHECKING:
@@ -320,6 +321,9 @@ class RecursiveDescentParser:
         "greenflag", "redflag", "moveon"
     }
     
+    # Maximum iterations for error recovery to prevent infinite loops
+    MAX_RECOVERY_ITERATIONS = 1000
+    
     def __init__(self, lexer: "Lexer"):
         """
         Initialize parser with a lexer.
@@ -413,14 +417,22 @@ class RecursiveDescentParser:
         program = None
         try:
             program = self._parse_program_with_recovery()
+        except ParseError:
+            # ParseError is already handled and added to self.errors
+            # Re-raise to let recovery mechanism handle it
+            raise
+        except (AttributeError, KeyError, IndexError, TypeError) as e:
+            # Common parser errors that should be caught and reported
+            error = ParseError(
+                f"Internal parser error: {type(e).__name__}: {e}",
+                self._current_token()
+            )
+            self.errors.append(error)
         except Exception as e:
-            # If we get an unexpected exception, create an error for it
-            if not isinstance(e, ParseError):
-                error = ParseError(f"Unexpected error: {e}", self._current_token())
-                self.errors.append(error)
+            # Unexpected critical errors - re-raise to avoid hiding bugs
+            raise
         
         # Debug: Print errors collected
-        import sys
         if len(self.errors) > 0:
             print(f"[DEBUG parse_with_recovery] Collected {len(self.errors)} errors:", file=sys.stderr)
             for i, err in enumerate(self.errors, 1):
@@ -958,7 +970,6 @@ class RecursiveDescentParser:
             self._skip_whitespace()
             
             # Debug: Check what token we're at after skipping "loe"
-            import sys
             current = self._current_token()
             if current:
                 print(f"[DEBUG _parse_program_with_recovery] After 'loe' typo, current token: {current.kind} '{current.lexeme}' (line {current.line})", file=sys.stderr)
@@ -1078,7 +1089,6 @@ class RecursiveDescentParser:
         token = self._current_token()
         
         # Debug: Log entry
-        import sys
         if token:
             print(f"[DEBUG _parse_function_body_with_recovery] Entering function body at token: {token.kind} '{token.lexeme}' (line {token.line})", file=sys.stderr)
         
@@ -1096,7 +1106,7 @@ class RecursiveDescentParser:
         
         # Parse statements (with recovery)
         statements = []
-        max_iterations = 1000  # Prevent infinite loops
+        max_iterations = self.MAX_RECOVERY_ITERATIONS
         iteration = 0
         
         # Track brace depth to know when we've reached the function body's closing brace
@@ -1186,7 +1196,7 @@ class RecursiveDescentParser:
                                                 "while", "pursue", "for", "comeback", "choose"} and brace_depth == 0:
                         # Found next statement keyword at top level - but we expected a semicolon first!
                         # Only report missing semicolon error if we haven't already reported one
-                        if not found_semicolon and sync_start_token and not error_is_about_semicolon:
+                        if not found_semicolon and sync_start_token:
                             missing_semicolon_error = ParseError(
                                 f"Missing semicolon. Expected ';' before '{current_token.lexeme}'",
                                 sync_start_token
@@ -1245,6 +1255,56 @@ class RecursiveDescentParser:
                         # Continue to next iteration of outer loop (which will check for RBRACE)
                         found_sync = True
                         break
+                    elif current_token.kind == "id" and brace_depth == 0:
+                        # Check if this identifier might be a typo for "more" or "forevermore"
+                        peek = self._peek_token()
+                        if peek and (peek.kind == "LBRACE" or peek.kind == "LPAREN"):
+                            suggestion = self._find_similar_keyword(current_token.lexeme)
+                            if suggestion in {"more", "forevermore"}:
+                                # It's a typo for "more" or "forevermore" - report error and skip
+                                typo_error = ParseError(
+                                    f"Unexpected identifier '{current_token.lexeme}'. Did you mean '{suggestion}'?",
+                                    current_token
+                                )
+                                self.errors.append(typo_error)
+                                # Skip the typo and its block (same logic as above)
+                                self._advance()  # Skip the typo identifier
+                                if suggestion == "more":
+                                    # Handle as "more { ... }"
+                                    if self._match("LBRACE"):
+                                        self._advance()  # Skip "{"
+                                        block_depth = 1
+                                        while block_depth > 0 and self._current_token() and self._current_token().kind != "EOF":
+                                            if self._current_token().kind == "LBRACE":
+                                                block_depth += 1
+                                            elif self._current_token().kind == "RBRACE":
+                                                block_depth -= 1
+                                            self._advance()
+                                        self._skip_whitespace()
+                                elif suggestion == "forevermore":
+                                    # Handle as "forevermore (expr) { ... }"
+                                    if self._match("LPAREN"):
+                                        self._advance()
+                                        paren_depth = 1
+                                        while paren_depth > 0 and self._current_token() and self._current_token().kind != "EOF":
+                                            if self._current_token().kind == "LPAREN":
+                                                paren_depth += 1
+                                            elif self._current_token().kind == "RPAREN":
+                                                paren_depth -= 1
+                                            self._advance()
+                                        self._skip_whitespace()
+                                        if self._match("LBRACE"):
+                                            self._advance()
+                                            block_depth = 1
+                                            while block_depth > 0 and self._current_token() and self._current_token().kind != "EOF":
+                                                if self._current_token().kind == "LBRACE":
+                                                    block_depth += 1
+                                                elif self._current_token().kind == "RBRACE":
+                                                    block_depth -= 1
+                                                self._advance()
+                                            self._skip_whitespace()
+                                found_sync = True
+                                break
                     
                     # Skip this token and continue looking
                     self._advance()
@@ -1254,7 +1314,7 @@ class RecursiveDescentParser:
                     # No sync point found - reached EOF
                     # If we didn't find a semicolon, report missing semicolon error
                     # Only if we haven't already reported one
-                    if not found_semicolon and sync_start_token and not error_is_about_semicolon:
+                    if not found_semicolon and sync_start_token:
                         missing_semicolon_error = ParseError(
                             f"Missing semicolon. Expected ';' before end of input",
                             sync_start_token
@@ -1604,12 +1664,8 @@ class RecursiveDescentParser:
                 return None
         
         # Check for different statement types
-        if self._match("id"):
-            import sys
-            peek = self._peek_token()
-            print(f"[DEBUG _parse_statement] Calling _parse_id_statement for '{token.lexeme}'. Peek token: {peek.kind if peek else 'None'} '{peek.lexeme if peek else ''}'", file=sys.stderr)
-            return self._parse_id_statement()
-        elif self._match("give") or self._match("overshare"):
+        # First check for exact keyword matches
+        if self._match("give") or self._match("overshare"):
             return self._parse_input_statement()
         elif self._match("express"):
             return self._parse_output_statement()
@@ -1625,6 +1681,34 @@ class RecursiveDescentParser:
             return self._parse_return_statement()
         elif self._match("choose"):
             return self._parse_switch_statement()
+        elif self._match("id"):
+            # Check if this identifier is a typo for a statement keyword
+            suggestion = self._find_similar_keyword(token.lexeme)
+            if suggestion == "forever":
+                # Typo for "forever" (if statement) - report error but don't advance
+                # Let _parse_if_statement handle consuming the token
+                error = ParseError(
+                    f"Unexpected identifier '{token.lexeme}'. Did you mean 'forever'?",
+                    token
+                )
+                self.errors.append(error)
+                # Don't advance - let _parse_if_statement handle it
+                return self._parse_if_statement()
+            elif suggestion == "choose":
+                # Typo for "choose" (switch statement) - report error but don't advance
+                # Let _parse_switch_statement handle consuming the token
+                error = ParseError(
+                    f"Unexpected identifier '{token.lexeme}'. Did you mean 'choose'?",
+                    token
+                )
+                self.errors.append(error)
+                # Don't advance - let _parse_switch_statement handle it
+                return self._parse_switch_statement()
+            else:
+                # Not a typo for a statement keyword, treat as regular identifier statement
+                peek = self._peek_token()
+                print(f"[DEBUG _parse_statement] Calling _parse_id_statement for '{token.lexeme}'. Peek token: {peek.kind if peek else 'None'} '{peek.lexeme if peek else ''}'", file=sys.stderr)
+                return self._parse_id_statement()
         elif self._match("OP_INC") or self._match("OP_DEC"):
             return self._parse_unary_statement()
         else:
@@ -1643,7 +1727,6 @@ class RecursiveDescentParser:
                 msg = f"Unexpected token '{token.lexeme}'. Expected a statement keyword: {expected_keywords}"
             
             error = ParseError(msg, token)
-            import sys
             print(f"[DEBUG _parse_statement] Adding error to self.errors. Count before: {len(self.errors)}", file=sys.stderr)
             self.errors.append(error)
             print(f"[DEBUG _parse_statement] Count after: {len(self.errors)}. Error message: {msg[:60]}", file=sys.stderr)
@@ -1663,12 +1746,10 @@ class RecursiveDescentParser:
         
         # Check for common typos: if identifier is followed by <<, it might be a typo for "express"
         peek = self._peek_token()
-        import sys
         print(f"[DEBUG _parse_id_statement] After consuming '{identifier}', peek token: {peek.kind if peek else 'None'} '{peek.lexeme if peek else ''}'", file=sys.stderr)
         if peek and peek.kind == "OP_LSHIFT":
             # This looks like it should be an output statement
             # An identifier followed by << is not a valid statement - it should be "express <<"
-            import sys
             print(f"[DEBUG _parse_id_statement] Found identifier '{identifier}' followed by OP_LSHIFT", file=sys.stderr)
             suggestion = self._find_similar_keyword(identifier)
             print(f"[DEBUG _parse_id_statement] Suggestion for '{identifier}': {suggestion}", file=sys.stderr)
@@ -1892,7 +1973,36 @@ class RecursiveDescentParser:
     
     def _parse_if_statement(self) -> IfStatement:
         """Parse: forever (expr) { body } [forevermore ...] [more { body }]"""
-        token = self._consume("forever")
+        # Consume "forever" - handle typo recovery if needed
+        if self._match("forever"):
+            token = self._consume("forever")
+        elif self._match("id"):
+            # Check if this is a typo for "forever"
+            current_token = self._current_token()
+            suggestion = self._find_similar_keyword(current_token.lexeme)
+            if suggestion == "forever":
+                # Error may have already been reported in _parse_statement, check first
+                error_already_reported = any(
+                    e.token == current_token and "forever" in e.message.lower()
+                    for e in self.errors
+                )
+                if not error_already_reported:
+                    # Report error if not already reported
+                    error = ParseError(
+                        f"Unexpected identifier '{current_token.lexeme}'. Did you mean 'forever'?",
+                        current_token
+                    )
+                    self.errors.append(error)
+                # Use typo token for line/column info, then advance
+                token = current_token
+                self._advance()  # Skip typo
+            else:
+                raise ParseError(f"Expected 'forever', found '{current_token.lexeme}'", current_token)
+        else:
+            current_token = self._current_token()
+            if not current_token:
+                raise ParseError("Expected 'forever', found end of input", None)
+            raise ParseError(f"Expected 'forever', found '{current_token.lexeme}'", current_token)
         self._consume("LPAREN")
         condition = self._parse_expression()
         self._consume("RPAREN")
@@ -1909,8 +2019,29 @@ class RecursiveDescentParser:
         
         # Parse elif clauses
         elif_clauses = []
-        while self._match("forevermore"):
-            self._consume("forevermore")
+        while True:
+            # Check for "forevermore" or typo for it
+            if self._match("forevermore"):
+                self._consume("forevermore")
+            elif self._match("id") and self._peek_token() and self._peek_token().kind == "LPAREN":
+                # Check if this identifier is a typo for "forevermore"
+                current_token = self._current_token()
+                suggestion = self._find_similar_keyword(current_token.lexeme)
+                if suggestion == "forevermore":
+                    # It's a typo for "forevermore" - report error but continue parsing
+                    error = ParseError(
+                        f"Unexpected identifier '{current_token.lexeme}'. Did you mean 'forevermore'?",
+                        current_token
+                    )
+                    self.errors.append(error)
+                    # Advance past the typo and continue as if it were "forevermore"
+                    self._advance()  # Skip the typo identifier
+                else:
+                    # Not a typo for forevermore, break the loop
+                    break
+            else:
+                # Not forevermore and not a typo, break the loop
+                break
             self._consume("LPAREN")
             elif_condition = self._parse_expression()
             self._consume("RPAREN")
@@ -1944,6 +2075,38 @@ class RecursiveDescentParser:
                 # Error in else body - use recovery version
                 else_body = self._parse_function_body_with_recovery()
             self._consume("RBRACE")
+        elif self._match("id"):
+            # Check if this identifier is a typo for "more"
+            current_token = self._current_token()
+            suggestion = self._find_similar_keyword(current_token.lexeme)
+            if suggestion == "more":
+                # It's a typo for "more" - report error but continue parsing
+                error = ParseError(
+                    f"Unexpected identifier '{current_token.lexeme}'. Did you mean 'more'?",
+                    current_token
+                )
+                self.errors.append(error)
+                # Advance past the typo and continue as if it were "more"
+                self._advance()  # Skip the typo identifier
+                # Check if next token is LBRACE (expected after "more")
+                if self._match("LBRACE"):
+                    self._consume("LBRACE")
+                    self._skip_whitespace()
+                    # Parse the else body with recovery
+                    try:
+                        else_body = self._parse_function_body()
+                    except ParseError:
+                        else_body = self._parse_function_body_with_recovery()
+                    self._consume("RBRACE")
+                else:
+                    # Typo but wrong structure - report additional error
+                    next_token = self._current_token()
+                    if next_token:
+                        error2 = ParseError(
+                            f"Expected '{{' after 'more', found '{next_token.lexeme}'",
+                            next_token
+                        )
+                        self.errors.append(error2)
         
         return IfStatement(
             condition=condition,
@@ -2103,7 +2266,36 @@ class RecursiveDescentParser:
     
     def _parse_switch_statement(self) -> SwitchStatement:
         """Parse: choose (expr) { phase ... [bareminimum ...] }"""
-        token = self._consume("choose")
+        # Consume "choose" - handle typo recovery if needed
+        if self._match("choose"):
+            token = self._consume("choose")
+        elif self._match("id"):
+            # Check if this is a typo for "choose"
+            current_token = self._current_token()
+            suggestion = self._find_similar_keyword(current_token.lexeme)
+            if suggestion == "choose":
+                # Error may have already been reported in _parse_statement, check first
+                error_already_reported = any(
+                    e.token == current_token and "choose" in e.message.lower()
+                    for e in self.errors
+                )
+                if not error_already_reported:
+                    # Report error if not already reported
+                    error = ParseError(
+                        f"Unexpected identifier '{current_token.lexeme}'. Did you mean 'choose'?",
+                        current_token
+                    )
+                    self.errors.append(error)
+                # Use typo token for line/column info, then advance
+                token = current_token
+                self._advance()  # Skip typo
+            else:
+                raise ParseError(f"Expected 'choose', found '{current_token.lexeme}'", current_token)
+        else:
+            current_token = self._current_token()
+            if not current_token:
+                raise ParseError("Expected 'choose', found end of input", None)
+            raise ParseError(f"Expected 'choose', found '{current_token.lexeme}'", current_token)
         self._consume("LPAREN")
         expression = self._parse_expression()
         self._consume("RPAREN")
@@ -2475,7 +2667,6 @@ def parse_with_errors_rd(source: str) -> tuple[Optional[Program], List]:
     
     # Debug: Print all errors to console (can be removed later)
     if len(syntax_errors) > 0:
-        import sys
         print(f"[DEBUG parse_with_errors_rd] Collected {len(syntax_errors)} errors:", file=sys.stderr)
         for i, err in enumerate(syntax_errors, 1):
             print(f"  Error {i}: Line {err.line}:{err.column} - {err.message[:100]}", file=sys.stderr)

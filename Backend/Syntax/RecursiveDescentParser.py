@@ -723,6 +723,112 @@ class RecursiveDescentParser:
         
         return False
     
+    def _analyze_brace_balance(self, start_index: Optional[int] = None) -> dict:
+        """
+        Analyze brace and parenthesis balance from current position (or start_index) to end.
+        
+        Returns a dictionary with:
+        - brace_depth: net brace depth (positive = more opening braces)
+        - paren_depth: net parenthesis depth
+        - bracket_depth: net bracket depth
+        - has_closing_brace: True if there's a closing brace that could match
+        - has_closing_paren: True if there's a closing paren that could match
+        
+        Args:
+            start_index: Optional starting token index (defaults to current_index)
+            
+        Returns:
+            Dictionary with balance information
+        """
+        if start_index is None:
+            start_index = self.current_index
+        
+        brace_depth = 0
+        paren_depth = 0
+        bracket_depth = 0
+        has_closing_brace = False
+        has_closing_paren = False
+        has_closing_bracket = False
+        
+        # Look ahead from start_index
+        for i in range(start_index, len(self.tokens)):
+            token = self.tokens[i]
+            if token.kind == "EOF":
+                break
+            
+            if token.kind == "LBRACE":
+                brace_depth += 1
+            elif token.kind == "RBRACE":
+                brace_depth -= 1
+                if brace_depth == 0:
+                    has_closing_brace = True
+            elif token.kind == "LPAREN":
+                paren_depth += 1
+            elif token.kind == "RPAREN":
+                paren_depth -= 1
+                if paren_depth == 0:
+                    has_closing_paren = True
+            elif token.kind == "LBRACKET":
+                bracket_depth += 1
+            elif token.kind == "RBRACKET":
+                bracket_depth -= 1
+                if bracket_depth == 0:
+                    has_closing_bracket = True
+        
+        return {
+            "brace_depth": brace_depth,
+            "paren_depth": paren_depth,
+            "bracket_depth": bracket_depth,
+            "has_closing_brace": has_closing_brace or brace_depth <= 0,
+            "has_closing_paren": has_closing_paren or paren_depth <= 0,
+            "has_closing_bracket": has_closing_bracket or bracket_depth <= 0,
+            "unbalanced_braces": brace_depth > 0,
+            "unbalanced_parens": paren_depth > 0,
+            "unbalanced_brackets": bracket_depth > 0
+        }
+    
+    def _find_matching_closing_brace(self, start_index: Optional[int] = None) -> Optional[int]:
+        """
+        Find the index of the matching closing brace for the brace at start_index.
+        Uses brace depth tracking to find the matching brace.
+        
+        Args:
+            start_index: Index of opening brace token (defaults to current_index)
+            
+        Returns:
+            Index of matching closing brace, or None if not found
+        """
+        if start_index is None:
+            start_index = self.current_index
+        
+        # If current token is not LBRACE, look for it
+        if start_index < len(self.tokens) and self.tokens[start_index].kind != "LBRACE":
+            # Look forward for next LBRACE
+            for i in range(start_index, len(self.tokens)):
+                if self.tokens[i].kind == "LBRACE":
+                    start_index = i
+                    break
+            else:
+                return None
+        
+        if start_index >= len(self.tokens) or self.tokens[start_index].kind != "LBRACE":
+            return None
+        
+        # Track depth to find matching closing brace
+        depth = 1
+        for i in range(start_index + 1, len(self.tokens)):
+            token = self.tokens[i]
+            if token.kind == "LBRACE":
+                depth += 1
+            elif token.kind == "RBRACE":
+                depth -= 1
+                if depth == 0:
+                    return i
+            elif token.kind == "EOF":
+                break
+        
+        return None
+    
     def _format_expected_token(self, token_kind: str) -> str:
         """Format expected token kind for display."""
         # Map token kinds to readable names
@@ -838,20 +944,90 @@ class RecursiveDescentParser:
         
         self._consume("LBRACE", context="main function")
         self._skip_whitespace()  # Skip newlines after opening brace
-        main_body = self._parse_function_body()
         
-        # Check for missing closing brace
-        if not self._match("RBRACE"):
+        # Store the position of the opening brace for better error messages
+        # Find the LBRACE token we just consumed
+        opening_brace_index = None
+        for i in range(self.current_index - 1, -1, -1):
+            if i < len(self.tokens) and self.tokens[i].kind == "LBRACE":
+                opening_brace_index = i
+                break
+        
+        # Try to parse function body - use recovery if there are errors
+        try:
+            main_body = self._parse_function_body()
+        except ParseError:
+            # If there were errors in the body, use recovery mode
+            # This helps prevent false "missing closing brace" errors
+            main_body = self._parse_function_body_with_recovery()
+            # Don't raise - continue to check for closing brace
+            # After recovery, make sure we advance past any remaining tokens
+            # to reach the closing brace if it exists
+            self._skip_whitespace()
+        
+        # Check for missing closing brace with improved detection
+        # First, try to find the matching closing brace even if we're not at it
+        matching_brace_idx = None
+        if opening_brace_index is not None:
+            matching_brace_idx = self._find_matching_closing_brace(opening_brace_index)
+        
+        # Check if we already have errors about structural issues
+        has_structural_errors = any(
+            "expression" in e.message.lower() or 
+            "unexpected token" in e.message.lower() or
+            ("expected" in e.message.lower() and "brace" not in e.message.lower() and "parenthesis" not in e.message.lower())
+            for e in self.errors
+        )
+        
+        # Check current position first
+        if self._match("RBRACE"):
+            # We're already at the closing brace - consume it normally
+            self._consume("RBRACE", context="main function")
+        elif matching_brace_idx is not None:
+            # Found matching brace ahead - advance to it and consume it
+            # This handles cases where parser is at wrong position after errors
+            if self.current_index < matching_brace_idx:
+                # We're before the brace - advance to it
+                self.current_index = matching_brace_idx
+                # Now we should be at the brace
+                if self._match("RBRACE"):
+                    self._consume("RBRACE", context="main function")
+                else:
+                    # Something went wrong - brace should be here
+                    # Don't report error if we have structural errors (cascading)
+                    if not has_structural_errors:
+                        next_token = self._current_token()
+                        msg = f"Expected '}}' to close 'love () {{' function. Found '{next_token.lexeme if next_token else 'end of input'}' instead. Complete structure: love () {{ ... }}"
+                        error = ParseError(msg, next_token)
+                        self.errors.append(error)
+                        raise error
+        elif not self._match("RBRACE"):
+            # No matching brace found AND not at current position
+            # This is a real missing brace error
             next_token = self._current_token()
-            if next_token and next_token.kind != "EOF":
-                msg = f"Expected '}}' to close 'love () {{' function. Found '{next_token.lexeme}' instead"
-            else:
-                msg = "Expected '}' to close 'love () {' function. Reached end of input"
-            error = ParseError(msg, next_token)
-            self.errors.append(error)
-            raise error
-        
-        self._consume("RBRACE", context="main function")
+            
+            # Only report if we don't have structural errors (to avoid cascading)
+            if not has_structural_errors:
+                if next_token and next_token.kind != "EOF":
+                    msg = f"Expected '}}' to close 'love () {{' function. Found '{next_token.lexeme}' instead. Complete structure: love () {{ ... }}"
+                else:
+                    msg = "Expected '}' to close 'love () {' function. Reached end of input. Complete structure: love () { ... }"
+                error = ParseError(msg, next_token)
+                self.errors.append(error)
+                raise error
+            # Otherwise, don't report (likely cascading from structural error)
+            # Return what we have so far
+            return Program(
+                namespace=namespace,
+                global_declarations=global_decls,
+                sub_functions=sub_funcs,
+                main_function=main_func,
+                line=line,
+                column=col
+            )
+        else:
+            # Normal case - brace is there, consume it
+            self._consume("RBRACE", context="main function")
         
         main_func = MainFunction(body=main_body, line=line, column=col)
         
@@ -1157,6 +1333,20 @@ class RecursiveDescentParser:
                 if len(self.errors) == 0:
                     print(f"[DEBUG _parse_function_body_with_recovery] WARNING: Error was raised but NOT in self.errors! Adding it now.", file=sys.stderr)
                     self.errors.append(e)
+                
+                # Check if the error is about a structural issue (expression, braces, etc.)
+                # vs a missing semicolon. Don't report "missing semicolon" if error was structural.
+                error_message_lower = e.message.lower()
+                error_is_structural = (
+                    "expression" in error_message_lower or
+                    "unexpected token" in error_message_lower or
+                    "expected" in error_message_lower and "semicolon" not in error_message_lower or
+                    "brace" in error_message_lower or
+                    "parenthesis" in error_message_lower or
+                    "missing" in error_message_lower and "semicolon" not in error_message_lower
+                )
+                error_is_about_semicolon = "semicolon" in error_message_lower
+                
                 # Now we need to recover by skipping to the next statement
                 # Look for semicolon (statement end) - this is the best sync point
                 found_sync = False
@@ -1165,6 +1355,14 @@ class RecursiveDescentParser:
                 # Track the position where we started looking (for missing semicolon error)
                 sync_start_token = self._current_token()
                 found_semicolon = False
+                
+                # Check if sync_start_token is a statement starter (doesn't need semicolon before it)
+                statement_starters = {"forever", "while", "for", "pursue", "choose", "express", "give", "overshare", "comeback"}
+                sync_is_statement_starter = (
+                    sync_start_token and 
+                    (sync_start_token.kind in statement_starters or 
+                     (sync_start_token.kind == "id" and sync_start_token.lexeme.lower() in statement_starters))
+                )
                 
                 # Track brace depth to avoid stopping at nested closing braces
                 # Use the outer loop's brace_depth variable, starting from its current value
@@ -1180,9 +1378,11 @@ class RecursiveDescentParser:
                         if brace_depth > 0:
                             # This is closing a nested block, continue looking
                             brace_depth -= 1
-                        # If brace_depth == 0, this might be the function body's closing brace
-                        # But we don't stop here during error recovery - let the outer loop handle it
-                        # We only look for statement keywords or semicolons as sync points
+                        elif brace_depth == 0:
+                            # This is the function body's closing brace - stop here
+                            # Don't advance, let the outer loop handle it
+                            found_sync = True
+                            break
                     
                     # Look for sync points at top level (brace_depth == 0)
                     if current_token.kind == "SEMICOLON" and brace_depth == 0:
@@ -1194,9 +1394,20 @@ class RecursiveDescentParser:
                         break
                     elif current_token.kind in {"express", "give", "overshare", "forever", 
                                                 "while", "pursue", "for", "comeback", "choose"} and brace_depth == 0:
-                        # Found next statement keyword at top level - but we expected a semicolon first!
-                        # Only report missing semicolon error if we haven't already reported one
-                        if not found_semicolon and sync_start_token:
+                        # Found next statement keyword at top level
+                        # Only report missing semicolon error if:
+                        # 1. We haven't already found/reported one
+                        # 2. The original error was NOT about a structural issue (expression, braces, etc.)
+                        # 3. The sync_start_token is NOT a statement starter (statement starters don't need semicolons before them)
+                        # 4. The original error was NOT already about a semicolon
+                        should_report_missing_semicolon = (
+                            not found_semicolon and 
+                            sync_start_token and 
+                            not error_is_structural and 
+                            not error_is_about_semicolon and
+                            not sync_is_statement_starter
+                        )
+                        if should_report_missing_semicolon:
                             missing_semicolon_error = ParseError(
                                 f"Missing semicolon. Expected ';' before '{current_token.lexeme}'",
                                 sync_start_token
@@ -1313,8 +1524,19 @@ class RecursiveDescentParser:
                 if not found_sync:
                     # No sync point found - reached EOF
                     # If we didn't find a semicolon, report missing semicolon error
-                    # Only if we haven't already reported one
-                    if not found_semicolon and sync_start_token:
+                    # Only if:
+                    # 1. We haven't already reported one
+                    # 2. The original error was NOT about a structural issue
+                    # 3. The sync_start_token is NOT a statement starter
+                    # 4. The original error was NOT already about a semicolon
+                    should_report_missing_semicolon = (
+                        not found_semicolon and 
+                        sync_start_token and 
+                        not error_is_structural and 
+                        not error_is_about_semicolon and
+                        not sync_is_statement_starter
+                    )
+                    if should_report_missing_semicolon:
                         missing_semicolon_error = ParseError(
                             f"Missing semicolon. Expected ';' before end of input",
                             sync_start_token
@@ -1323,7 +1545,13 @@ class RecursiveDescentParser:
                         print(f"[DEBUG _parse_function_body_with_recovery] Added missing semicolon error at EOF. Total errors: {len(self.errors)}", file=sys.stderr)
                     break
         
+        # Before returning, make sure we're positioned correctly
+        # If we're at the closing brace, DON'T advance past it - let _parse_program() consume it
+        # This ensures proper brace tracking
+        self._skip_whitespace()
+        
         print(f"[DEBUG _parse_function_body_with_recovery] Exiting function body. Collected {len(self.errors)} total errors so far", file=sys.stderr)
+        print(f"[DEBUG _parse_function_body_with_recovery] Current token: {self._current_token().kind if self._current_token() else 'None'}", file=sys.stderr)
         return FunctionBody(
             local_declarations=local_decls,
             statements=statements,
@@ -1375,14 +1603,14 @@ class RecursiveDescentParser:
         else:
             return_type = self._parse_data_type()
         
-        name_token = self._consume("id", "Expected function name")
-        self._consume("LPAREN")
+        name_token = self._consume("id", "Expected function name. Complete structure: <return_type> id (<parameter>) { ... }")
+        self._consume("LPAREN", "Expected '(' after function name. Complete structure: <return_type> id (<parameter>) { ... }")
         parameters = self._parse_parameters()
-        self._consume("RPAREN")
-        self._consume("LBRACE")
+        self._consume("RPAREN", "Expected ')' to close function parameters. Complete structure: <return_type> id (<parameter>) { ... }")
+        self._consume("LBRACE", "Expected '{' after function parameters. Complete structure: <return_type> id (<parameter>) { ... }")
         self._skip_whitespace()  # Skip newlines after opening brace
         body = self._parse_function_body()
-        self._consume("RBRACE")
+        self._consume("RBRACE", "Expected '}' to close function body. Complete structure: <return_type> id (<parameter>) { ... }")
         
         return Function(
             return_type=return_type,
@@ -1413,10 +1641,10 @@ class RecursiveDescentParser:
             is_const = True
             # Const declaration: const data_type id = expr;
             data_type = self._parse_data_type()
-            id_token = self._consume("id", "Expected identifier")
-            self._consume("ASSIGN", "Expected '=' in const declaration")
+            id_token = self._consume("id", "Expected identifier. Complete structure: const <data_type> id = <expr>;")
+            self._consume("ASSIGN", "Expected '=' in const declaration. Complete structure: const <data_type> id = <expr>;")
             initial_value = self._parse_expression()
-            self._consume("SEMICOLON", "Expected semicolon after declaration")
+            self._consume("SEMICOLON", "Expected semicolon after declaration. Complete structure: const <data_type> id = <expr>;")
             
             return Declaration(
                 data_type=data_type,
@@ -1433,7 +1661,7 @@ class RecursiveDescentParser:
         data_type = self._parse_data_type()
         
         # Parse identifier
-        id_token = self._consume("id", "Expected identifier")
+        id_token = self._consume("id", "Expected identifier. Complete structure: <data_type> id [= <expr>];")
         
         # Check for Rule 10: <data_type> id; (simple declaration)
         if self._match("SEMICOLON"):
@@ -1477,7 +1705,7 @@ class RecursiveDescentParser:
         multi_decls = []
         while self._match("COMMA"):
             self._consume("COMMA")
-            multi_id = self._consume("id", "Expected identifier after comma")
+            multi_id = self._consume("id", "Expected identifier after comma. Complete structure: <data_type> id [= <expr>], id2 [= <expr>];")
             multi_dims = self._parse_array_declaration()
             multi_init = None
             if self._match("ASSIGN"):
@@ -1502,7 +1730,7 @@ class RecursiveDescentParser:
                 column=multi_id.column
             ))
         
-        self._consume("SEMICOLON", "Expected semicolon after declaration")
+        self._consume("SEMICOLON", "Expected semicolon after declaration. Complete structure: <data_type> id [= <expr>];")
         self._skip_whitespace()  # Skip newlines after semicolon
         
         return Declaration(
@@ -1860,9 +2088,9 @@ class RecursiveDescentParser:
         
         if self._match("give"):
             self._consume("give")
-            self._consume("OP_RSHIFT", "Expected '>>' after 'give'")
-            id_token = self._consume("id", "Expected identifier after '>>'")
-            self._consume("SEMICOLON")
+            self._consume("OP_RSHIFT", "Expected '>>' after 'give'. Complete structure: give >> id;")
+            id_token = self._consume("id", "Expected identifier after '>>'. Complete structure: give >> id;")
+            self._consume("SEMICOLON", "Expected ';' after identifier. Complete structure: give >> id;")
             
             return InputStatement(
                 method="give",
@@ -1872,10 +2100,10 @@ class RecursiveDescentParser:
             )
         elif self._match("overshare"):
             self._consume("overshare")
-            self._consume("LPAREN")
-            id_token = self._consume("id", "Expected identifier in overshare")
-            self._consume("RPAREN")
-            self._consume("SEMICOLON")
+            self._consume("LPAREN", "Expected '(' after 'overshare'. Complete structure: overshare(id);")
+            id_token = self._consume("id", "Expected identifier in overshare. Complete structure: overshare(id);")
+            self._consume("RPAREN", "Expected ')' to close 'overshare ('. Complete structure: overshare(id);")
+            self._consume("SEMICOLON", "Expected ';' after 'overshare()'. Complete structure: overshare(id);")
             
             return InputStatement(
                 method="overshare",
@@ -1903,7 +2131,7 @@ class RecursiveDescentParser:
         if self._match("LT"):
             # User wrote a single < instead of <<
             lt_token = self._current_token()
-            msg = f"Unexpected token '<' after 'express'. Expected '<<' (double less-than) for output operator. Did you mean '<<'?"
+            msg = f"Unexpected token '<' after 'express'. Expected '<<' (double less-than) for output operator. Did you mean '<<'? Complete structure: express << <expr> << periodt;"
             error = ParseError(msg, lt_token)
             self.errors.append(error)
             raise error
@@ -1939,9 +2167,9 @@ class RecursiveDescentParser:
                     if possible:
                         terminal_names = [self._format_expected_token(t).strip("'") for t in possible]
                         terminals_str = ", ".join(terminal_names)
-                        msg = f"Unexpected token '{next_token.lexeme if next_token else 'end of input'}' after '<<'. Expected one of: {terminals_str}"
+                        msg = f"Unexpected token '{next_token.lexeme if next_token else 'end of input'}' after '<<'. Expected one of: {terminals_str}. Complete structure: express << <expr> << periodt;"
                     else:
-                        msg = f"Unexpected token '{next_token.lexeme if next_token else 'end of input'}' after '<<'. Expected an expression or 'periodt'"
+                        msg = f"Unexpected token '{next_token.lexeme if next_token else 'end of input'}' after '<<'. Expected an expression or 'periodt'. Complete structure: express << <expr> << periodt;"
                     error = ParseError(msg, next_token)
                     self.errors.append(error)
                     raise error
@@ -1963,7 +2191,7 @@ class RecursiveDescentParser:
         if not self._match("SEMICOLON"):
             value = self._parse_expression()
         
-        self._consume("SEMICOLON")
+        self._consume("SEMICOLON", "Expected ';' after 'comeback'. Complete structure: comeback [<expr>];")
         
         return ReturnStatement(
             value=value,
@@ -2004,17 +2232,135 @@ class RecursiveDescentParser:
                 raise ParseError("Expected 'forever', found end of input", None)
             raise ParseError(f"Expected 'forever', found '{current_token.lexeme}'", current_token)
         self._consume("LPAREN")
-        condition = self._parse_expression()
-        self._consume("RPAREN")
-        self._consume("LBRACE")
+        # Store position of opening parenthesis for better error messages
+        opening_paren_index = self.current_index - 1
+        
+        # Check if expression is empty (immediately followed by RPAREN)
+        if self._match("RPAREN"):
+            # Empty expression - report error immediately
+            rparen_token = self._current_token()
+            possible = self._get_all_possible_terminals("expression")
+            if possible:
+                terminal_names = [self._format_expected_token(t).strip("'") for t in possible]
+                terminals_str = ", ".join(terminal_names)
+                msg = f"Unexpected token ')' in expression. Expected one of: {terminals_str}. Complete structure: forever (<expr>) {{ ... }}"
+            else:
+                msg = "Unexpected token ')' in expression. Expected an expression (identifier, literal, '(', or function call). Complete structure: forever (<expr>) { ... }"
+            error = ParseError(msg, rparen_token)
+            self.errors.append(error)
+            condition = None
+        else:
+            # Try to parse expression - if it fails, still try to parse the braces and body
+            condition = None
+            try:
+                condition = self._parse_expression()
+            except ParseError as e:
+                # Expression parsing failed (e.g., invalid expression)
+                # Record the error so it's reported to the user
+                self.errors.append(e)
+                # Still try to parse the braces and body to prevent cascading errors.
+                # The parser should still be at the ')' token, so we can consume it normally.
+                condition = None  # Will be None, but that's okay for recovery
+        
+        # Consume RPAREN - check if it exists first
+        if not self._match("RPAREN"):
+            # Check if there's a matching closing parenthesis ahead
+            if opening_paren_index is not None:
+                # Look for matching RPAREN
+                paren_depth = 1
+                found_rparen = False
+                for i in range(self.current_index, len(self.tokens)):
+                    token = self.tokens[i]
+                    if token.kind == "LPAREN":
+                        paren_depth += 1
+                    elif token.kind == "RPAREN":
+                        paren_depth -= 1
+                        if paren_depth == 0:
+                            # Found matching RPAREN - advance to it
+                            self.current_index = i
+                            found_rparen = True
+                            break
+                    elif token.kind == "EOF":
+                        break
+                
+                if not found_rparen:
+                    # No matching RPAREN - report error
+                    next_token = self._current_token()
+                    error = ParseError(
+                        f"Expected ')' to close 'forever (' statement. Found '{next_token.lexeme if next_token else 'end of input'}' instead. Complete structure: forever (<expr>) {{ ... }}",
+                        next_token
+                    )
+                    self.errors.append(error)
+                    raise error
+            else:
+                # Can't find opening paren index, use normal consume (will raise error)
+                self._consume("RPAREN")
+        else:
+            self._consume("RPAREN")
+        
+        # Consume LBRACE - check if it exists first
+        if not self._match("LBRACE"):
+            # Check if there's a matching opening brace ahead
+            next_token = self._current_token()
+            if next_token and next_token.kind == "LBRACE":
+                # It's there, just consume it
+                self._consume("LBRACE")
+            else:
+                # No LBRACE found - report error
+                error = ParseError(
+                    f"Expected '{{' after 'forever ()'. Found '{next_token.lexeme if next_token else 'end of input'}' instead. Complete structure: forever (<expr>) {{ ... }}",
+                    next_token
+                )
+                self.errors.append(error)
+                raise error
+        else:
+            self._consume("LBRACE")
         self._skip_whitespace()
+        # Store position of opening brace for better error detection
+        opening_brace_index = None
+        for i in range(self.current_index - 1, -1, -1):
+            if i < len(self.tokens) and self.tokens[i].kind == "LBRACE":
+                opening_brace_index = i
+                break
+        
         # Use recovery version for nested bodies so errors don't break the entire chain
         try:
             then_body = self._parse_function_body()
         except ParseError:
             # Error in then body - use recovery version
             then_body = self._parse_function_body_with_recovery()
-        self._consume("RBRACE")
+        
+        # Check for closing brace with better detection
+        if not self._match("RBRACE"):
+            # Try to find matching closing brace
+            matching_brace_idx = None
+            if opening_brace_index is not None:
+                matching_brace_idx = self._find_matching_closing_brace(opening_brace_index)
+            
+            if matching_brace_idx is not None:
+                # Found it - advance to it and consume
+                self.current_index = matching_brace_idx
+                self._advance()
+            else:
+                # No matching brace - check if we have structural errors
+                has_structural_errors = any(
+                    "expression" in e.message.lower() or 
+                    "unexpected token" in e.message.lower()
+                    for e in self.errors
+                )
+                if not has_structural_errors:
+                    # Report error only if no structural errors (to avoid cascading)
+                    next_token = self._current_token()
+                    error = ParseError(
+                        f"Expected '}}' to close 'forever () {{' block. Found '{next_token.lexeme if next_token else 'end of input'}' instead. Complete structure: forever (<expr>) {{ ... }}",
+                        next_token
+                    )
+                    self.errors.append(error)
+                    raise error
+                # Otherwise, don't report (likely cascading from structural error)
+        else:
+            # Normal case - brace is there, consume it
+            self._consume("RBRACE")
         self._skip_whitespace()  # Skip whitespace after closing brace
         
         # Parse elif clauses
@@ -2042,10 +2388,24 @@ class RecursiveDescentParser:
             else:
                 # Not forevermore and not a typo, break the loop
                 break
-            self._consume("LPAREN")
-            elif_condition = self._parse_expression()
-            self._consume("RPAREN")
-            self._consume("LBRACE")
+            self._consume("LPAREN", "Expected '(' after 'forevermore'. Complete structure: forevermore (<expr>) { ... }")
+            # Check for empty expression
+            if self._match("RPAREN"):
+                rparen_token = self._current_token()
+                possible = self._get_all_possible_terminals("expression")
+                if possible:
+                    terminal_names = [self._format_expected_token(t).strip("'") for t in possible]
+                    terminals_str = ", ".join(terminal_names)
+                    msg = f"Unexpected token ')' in expression. Expected one of: {terminals_str}. Complete structure: forevermore (<expr>) {{ ... }}"
+                else:
+                    msg = "Unexpected token ')' in expression. Expected an expression (identifier, literal, '(', or function call). Complete structure: forevermore (<expr>) { ... }"
+                error = ParseError(msg, rparen_token)
+                self.errors.append(error)
+                elif_condition = None
+            else:
+                elif_condition = self._parse_expression()
+            self._consume("RPAREN", "Expected ')' to close 'forevermore ('. Complete structure: forevermore (<expr>) { ... }")
+            self._consume("LBRACE", "Expected '{' after 'forevermore ()'. Complete structure: forevermore (<expr>) { ... }")
             self._skip_whitespace()
             # Use recovery version for nested bodies so errors don't break the entire chain
             try:
@@ -2053,7 +2413,7 @@ class RecursiveDescentParser:
             except ParseError:
                 # Error in elif body - use recovery version
                 elif_body = self._parse_function_body_with_recovery()
-            self._consume("RBRACE")
+            self._consume("RBRACE", "Expected '}' to close 'forevermore () {' block. Complete structure: forevermore (<expr>) { ... }")
             self._skip_whitespace()  # Skip whitespace after closing brace
             elif_clauses.append(ElifClause(
                 condition=elif_condition,
@@ -2103,7 +2463,7 @@ class RecursiveDescentParser:
                     next_token = self._current_token()
                     if next_token:
                         error2 = ParseError(
-                            f"Expected '{{' after 'more', found '{next_token.lexeme}'",
+                            f"Expected '{{' after 'more', found '{next_token.lexeme}'. Complete structure: more {{ ... }}",
                             next_token
                         )
                         self.errors.append(error2)
@@ -2120,13 +2480,27 @@ class RecursiveDescentParser:
     def _parse_while_statement(self) -> WhileStatement:
         """Parse: while (expr) { body }"""
         token = self._consume("while")
-        self._consume("LPAREN")
-        condition = self._parse_expression()
-        self._consume("RPAREN")
-        self._consume("LBRACE")
+        self._consume("LPAREN", "Expected '(' after 'while'. Complete structure: while (<expr>) { ... }")
+        # Check for empty expression
+        if self._match("RPAREN"):
+            rparen_token = self._current_token()
+            possible = self._get_all_possible_terminals("expression")
+            if possible:
+                terminal_names = [self._format_expected_token(t).strip("'") for t in possible]
+                terminals_str = ", ".join(terminal_names)
+                msg = f"Unexpected token ')' in expression. Expected one of: {terminals_str}. Complete structure: while (<expr>) {{ ... }}"
+            else:
+                msg = "Unexpected token ')' in expression. Expected an expression (identifier, literal, '(', or function call). Complete structure: while (<expr>) { ... }"
+            error = ParseError(msg, rparen_token)
+            self.errors.append(error)
+            condition = None
+        else:
+            condition = self._parse_expression()
+        self._consume("RPAREN", "Expected ')' to close 'while ('. Complete structure: while (<expr>) { ... }")
+        self._consume("LBRACE", "Expected '{' after 'while ()'. Complete structure: while (<expr>) { ... }")
         self._skip_whitespace()
         body = self._parse_function_body()
-        self._consume("RBRACE")
+        self._consume("RBRACE", "Expected '}' to close 'while () {' block. Complete structure: while (<expr>) { ... }")
         
         return WhileStatement(
             condition=condition,
@@ -2138,13 +2512,27 @@ class RecursiveDescentParser:
     def _parse_do_while_statement(self) -> DoWhileStatement:
         """Parse: pursue (expr) { body }"""
         token = self._consume("pursue")
-        self._consume("LPAREN")
-        condition = self._parse_expression()
-        self._consume("RPAREN")
-        self._consume("LBRACE")
+        self._consume("LPAREN", "Expected '(' after 'pursue'. Complete structure: pursue (<expr>) { ... }")
+        # Check for empty expression
+        if self._match("RPAREN"):
+            rparen_token = self._current_token()
+            possible = self._get_all_possible_terminals("expression")
+            if possible:
+                terminal_names = [self._format_expected_token(t).strip("'") for t in possible]
+                terminals_str = ", ".join(terminal_names)
+                msg = f"Unexpected token ')' in expression. Expected one of: {terminals_str}. Complete structure: pursue (<expr>) {{ ... }}"
+            else:
+                msg = "Unexpected token ')' in expression. Expected an expression (identifier, literal, '(', or function call). Complete structure: pursue (<expr>) { ... }"
+            error = ParseError(msg, rparen_token)
+            self.errors.append(error)
+            condition = None
+        else:
+            condition = self._parse_expression()
+        self._consume("RPAREN", "Expected ')' to close 'pursue ('. Complete structure: pursue (<expr>) { ... }")
+        self._consume("LBRACE", "Expected '{' after 'pursue ()'. Complete structure: pursue (<expr>) { ... }")
         self._skip_whitespace()
         body = self._parse_function_body()
-        self._consume("RBRACE")
+        self._consume("RBRACE", "Expected '}' to close 'pursue () {' block. Complete structure: pursue (<expr>) { ... }")
         
         return DoWhileStatement(
             condition=condition,
@@ -2156,30 +2544,30 @@ class RecursiveDescentParser:
     def _parse_for_statement(self) -> ForStatement:
         """Parse: for (init; condition; update) { body }"""
         token = self._consume("for")
-        self._consume("LPAREN")
+        self._consume("LPAREN", "Expected '(' after 'for'. Complete structure: for (<for_init>; <expr>; <for_ud>) { ... }")
         
         # Parse init
         init = None
         if not self._match("SEMICOLON"):
             init = self._parse_for_init()
-        self._consume("SEMICOLON")
+        self._consume("SEMICOLON", "Expected ';' after for loop init. Complete structure: for (<for_init>; <expr>; <for_ud>) { ... }")
         
         # Parse condition
         condition = None
         if not self._match("SEMICOLON"):
             condition = self._parse_expression()
-        self._consume("SEMICOLON")
+        self._consume("SEMICOLON", "Expected ';' after for loop condition. Complete structure: for (<for_init>; <expr>; <for_ud>) { ... }")
         
         # Parse update
         update = None
         if not self._match("RPAREN"):
             update = self._parse_for_update()
-        self._consume("RPAREN")
+        self._consume("RPAREN", "Expected ')' to close 'for ('. Complete structure: for (<for_init>; <expr>; <for_ud>) { ... }")
         
-        self._consume("LBRACE")
+        self._consume("LBRACE", "Expected '{' after 'for ()'. Complete structure: for (<for_init>; <expr>; <for_ud>) { ... }")
         self._skip_whitespace()
         body = self._parse_function_body()
-        self._consume("RBRACE")
+        self._consume("RBRACE", "Expected '}' to close 'for () {' block. Complete structure: for (<for_init>; <expr>; <for_ud>) { ... }")
         
         return ForStatement(
             init=init,
@@ -2199,8 +2587,8 @@ class RecursiveDescentParser:
            self._match("rant") or self._match("status"):
             data_type = self._parse_data_type()
         
-        id_token = self._consume("id", "Expected identifier in for loop init")
-        self._consume("ASSIGN", "Expected '=' in for loop init")
+        id_token = self._consume("id", "Expected identifier in for loop init. Complete structure: for (<for_init>; <expr>; <for_ud>) { ... }")
+        self._consume("ASSIGN", "Expected '=' in for loop init. Complete structure: for (<for_init>; <expr>; <for_ud>) { ... }")
         value = self._parse_expression()
         
         return ForInit(
@@ -2232,7 +2620,7 @@ class RecursiveDescentParser:
             )
         else:
             # id assign_op expr or id unary_op
-            id_token = self._consume("id", "Expected identifier in for loop update")
+            id_token = self._consume("id", "Expected identifier in for loop update. Complete structure: for (<for_init>; <expr>; <for_ud>) { ... }")
             
             if self._match("OP_INC") or self._match("OP_DEC"):
                 # Postfix unary: id++ or id--
@@ -2290,16 +2678,16 @@ class RecursiveDescentParser:
                 token = current_token
                 self._advance()  # Skip typo
             else:
-                raise ParseError(f"Expected 'choose', found '{current_token.lexeme}'", current_token)
+                raise ParseError(f"Expected 'choose', found '{current_token.lexeme}'. Complete structure: choose (<expr>) {{ phase <const>: ... breakup; ... }}", current_token)
         else:
             current_token = self._current_token()
             if not current_token:
-                raise ParseError("Expected 'choose', found end of input", None)
-            raise ParseError(f"Expected 'choose', found '{current_token.lexeme}'", current_token)
-        self._consume("LPAREN")
+                raise ParseError("Expected 'choose', found end of input. Complete structure: choose (<expr>) { phase <const>: ... breakup; ... }", None)
+            raise ParseError(f"Expected 'choose', found '{current_token.lexeme}'. Complete structure: choose (<expr>) {{ phase <const>: ... breakup; ... }}", current_token)
+        self._consume("LPAREN", "Expected '(' after 'choose'. Complete structure: choose (<expr>) { phase <const>: ... breakup; ... }")
         expression = self._parse_expression()
-        self._consume("RPAREN")
-        self._consume("LBRACE")
+        self._consume("RPAREN", "Expected ')' to close 'choose ('. Complete structure: choose (<expr>) { phase <const>: ... breakup; ... }")
+        self._consume("LBRACE", "Expected '{' after 'choose ()'. Complete structure: choose (<expr>) { phase <const>: ... breakup; ... }")
         self._skip_whitespace()
         
         # Parse cases
@@ -2321,12 +2709,12 @@ class RecursiveDescentParser:
                 lit_token = self._consume("rant_lit")
                 value = lit_token.literal or ""
             else:
-                raise ParseError("Expected literal value in case", case_token)
+                raise ParseError("Expected literal value in case. Complete structure: choose (<expr>) { phase <const>: ... breakup; ... }", case_token)
             
-            self._consume("COLON")
+            self._consume("COLON", "Expected ':' after phase value. Complete structure: choose (<expr>) { phase <const>: ... breakup; ... }")
             case_body = self._parse_function_body()
-            self._consume("breakup")
-            self._consume("SEMICOLON")
+            self._consume("breakup", "Expected 'breakup' after phase body. Complete structure: choose (<expr>) { phase <const>: ... breakup; ... }")
+            self._consume("SEMICOLON", "Expected ';' after 'breakup'. Complete structure: choose (<expr>) { phase <const>: ... breakup; ... }")
             
             cases.append(CaseClause(
                 value=value,
@@ -2339,12 +2727,12 @@ class RecursiveDescentParser:
         default_case = None
         if self._match("bareminimum"):
             self._consume("bareminimum")
-            self._consume("COLON")
+            self._consume("COLON", "Expected ':' after 'bareminimum'. Complete structure: choose (<expr>) { phase <const>: ... breakup; ... bareminimum: ... breakup; }")
             default_case = self._parse_function_body()
-            self._consume("breakup")
-            self._consume("SEMICOLON")
+            self._consume("breakup", "Expected 'breakup' after bareminimum body. Complete structure: choose (<expr>) { phase <const>: ... breakup; ... bareminimum: ... breakup; }")
+            self._consume("SEMICOLON", "Expected ';' after 'breakup'. Complete structure: choose (<expr>) { phase <const>: ... breakup; ... bareminimum: ... breakup; }")
         
-        self._consume("RBRACE")
+        self._consume("RBRACE", "Expected '}' to close 'choose () {' block. Complete structure: choose (<expr>) { phase <const>: ... breakup; ... }")
         
         return SwitchStatement(
             expression=expression,

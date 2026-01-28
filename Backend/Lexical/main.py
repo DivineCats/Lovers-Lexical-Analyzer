@@ -3,7 +3,7 @@ from flask_cors import CORS
 
 from Backend.Lexical import Lexer, tokens_as_rows, tokenize_with_errors
 from Backend.Lexical.Lexer import LexerError
-from Backend.Syntax import parse_with_errors, parse_with_errors_rd, parse_with_errors_simple_rd, create_error_context
+from Backend.Syntax import parse_with_errors_parserv2, create_error_context
 
 app = Flask(__name__)
 CORS(app, resources={r"/lex": {"origins": "*"}, r"/validate": {"origins": "*"}})
@@ -36,7 +36,10 @@ def lex():
 def validate():
     payload = request.get_json(silent=True) or {}
     source = payload.get("source", "")
-    parser_type = payload.get("parser", "lark")  # "lark", "rd" (recursive descent), or "simple_rd" (simple recursive descent)
+    # Supported parser types:
+    # - "parserv2": LL(1) Table-Driven (default)
+    # - "rd": legacy alias to parserv2 (kept for UI compatibility)
+    parser_type = payload.get("parser", "parserv2")
     
     if not isinstance(source, str):
         return jsonify({"error": "`source` must be a string"}), 400
@@ -66,15 +69,8 @@ def validate():
         }), 200
 
     # Then run syntax analysis - choose parser based on request
-    if parser_type == "rd":
-        # Use Recursive Descent Parser
-        tree, syntax_errors = parse_with_errors_rd(source)
-    elif parser_type == "simple_rd":
-        # Use Simple Recursive Descent Parser (top-down, left-to-right with own AST)
-        tree, syntax_errors = parse_with_errors_simple_rd(source)
-    else:
-        # Use Lark parser (default) - stops on first error
-        tree, syntax_errors = parse_with_errors(source)
+    # Both 'parserv2' and legacy 'rd' alias map to the LL(1) parser.
+    tree, syntax_errors = parse_with_errors_parserv2(source)
     
     if syntax_errors:
         errors_list = []

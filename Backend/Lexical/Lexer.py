@@ -5,7 +5,7 @@ from dataclasses import dataclass, asdict
 from decimal import Decimal, InvalidOperation
 from typing import Iterable, List, Optional
 
-from Backend.Syntax.token_map import (
+from Backend.Syntax.DELIMETERS import (
     Literals,
     expanded_reserved_word_follows,
     expanded_identifier_follows,

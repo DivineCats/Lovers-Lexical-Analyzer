@@ -8,7 +8,7 @@ from dataclasses import dataclass, asdict, field
 from typing import List, Optional, Tuple
 
 # Import TOKEN_DISPLAY_NAME for token name conversion
-from Backend.Syntax.token_map import TOKEN_DISPLAY_NAME
+from Backend.Syntax.DELIMETERS import TOKEN_DISPLAY_NAME
 
 
 @dataclass

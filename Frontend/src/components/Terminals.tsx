@@ -197,7 +197,15 @@ export default function Terminal({ validation = null, lexError = null, lexErrors
         )}
         {errors.map((error, idx) => {
           const constructionHint = error.type === "syntax" ? getConstructionHint(error.expected, error.message, error.unexpectedToken) : null;
-          
+          // Universal syntax error format: first line = what went wrong; second line = expected token(s) from CFG (always shown in bar)
+          const lines = error.message.split(/\n/).map((s) => s.trim()).filter(Boolean);
+          const mainMessage = lines[0] || error.message;
+          const expectedLineRaw = lines.find((l) => /^Expected Token:\s*/i.test(l) || /^Expected:\s*/i.test(l));
+          const expectedTokenLine = expectedLineRaw
+            ? expectedLineRaw.replace(/^Expected:\s*/i, "Expected Token: ")
+            : null;
+          const showInlineLocation = mainMessage.indexOf("(line ") === -1 && error.type !== "lexical" && error.line !== undefined && error.column !== undefined && error.line > 0 && error.column > 0;
+
           return (
             <div key={idx} className="error-container">
               <div className="error-item">
@@ -205,12 +213,19 @@ export default function Terminal({ validation = null, lexError = null, lexErrors
                   {error.type.toUpperCase()}
                 </span>
                 <span className="error-message">
-                  {error.message}
-                  {(error.type !== "lexical" && error.line !== undefined && error.column !== undefined && error.line > 0 && error.column > 0) && (
+                  {mainMessage}
+                  {showInlineLocation && (
                     <span className="error-location-inline"> (line {error.line}, col {error.column})</span>
                   )}
                 </span>
               </div>
+
+              {/* Expected Token bar (design from 2nd image: dark bar, left accent, light pink text) */}
+              {expectedTokenLine && (
+                <div className="error-expected-token-bar">
+                  {expectedTokenLine}
+                </div>
+              )}
               
               {/* Show expected delimiter for lexical errors (reserved words) */}
               {error.type === "lexical" && error.expectedDelimiter && (
@@ -219,8 +234,8 @@ export default function Terminal({ validation = null, lexError = null, lexErrors
                 </div>
               )}
               
-              {/* Show construction hint for syntax errors */}
-              {constructionHint && (
+              {/* Show construction hint only when we don't already show Expected Token bar (avoid 3rd redundant line) */}
+              {constructionHint && !expectedTokenLine && (
                 <div className="error-hint">
                   {constructionHint}
                 </div>

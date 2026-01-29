@@ -169,7 +169,7 @@
 }
 
 .error-location-inline {
-  color: #ffbf80;
+  color: #f4c542;  /* Slightly gold color for line/col location */
   font-weight: 600;
 }
 

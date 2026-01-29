@@ -80,7 +80,7 @@ reserved_symbol_follows = {
     # Logical
     "&&": {" ", "\t", "\n", "alphanum", '"', "(", "!"},
     "||": {" ", "\t", "\n", "alphanum", '"', "(", "!"},
-    "!": {" ", "\t", "\n", "alphanum", '"', "("},
+    "!": {" ", "\t", "\n", "alphanum"   , "("},
     # Relational
     "==": {" ", "\t", "\n", "alphanum", '"', "("},
     "!=": {" ", "\t", "\n", "alphanum", '"', "("},

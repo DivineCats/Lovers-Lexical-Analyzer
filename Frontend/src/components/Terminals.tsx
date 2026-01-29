@@ -206,6 +206,11 @@ export default function Terminal({ validation = null, lexError = null, lexErrors
             : null;
           const showInlineLocation = mainMessage.indexOf("(line ") === -1 && error.type !== "lexical" && error.line !== undefined && error.column !== undefined && error.line > 0 && error.column > 0;
 
+          // Extract location pattern from message if it's embedded: "(line X, col Y)" or "(line X, col Y)"
+          const locationMatch = mainMessage.match(/(\(line\s+\d+,\s*col\s+\d+\))/i);
+          const messageWithoutLocation = locationMatch ? mainMessage.replace(locationMatch[0], "").trim() : mainMessage;
+          const locationText = locationMatch ? locationMatch[1] : null;
+
           return (
             <div key={idx} className="error-container">
               <div className="error-item">
@@ -213,7 +218,10 @@ export default function Terminal({ validation = null, lexError = null, lexErrors
                   {error.type.toUpperCase()}
                 </span>
                 <span className="error-message">
-                  {mainMessage}
+                  {messageWithoutLocation}
+                  {locationText && (
+                    <span className="error-location-inline"> {locationText}</span>
+                  )}
                   {showInlineLocation && (
                     <span className="error-location-inline"> (line {error.line}, col {error.column})</span>
                   )}

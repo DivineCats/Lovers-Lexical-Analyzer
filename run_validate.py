@@ -8,7 +8,7 @@ if str(ROOT) not in sys.path:
 
 from Backend.Lexical import Lexer, tokenize_with_errors
 from Backend.Lexical.Lexer import LexerError
-from Backend.Syntax import parse_with_errors, create_error_context
+from Backend.Syntax import parse_with_errors_parserv2, create_error_context
 from Backend.Syntax.errors import SyntaxError as ParserSyntaxError
 
 
@@ -54,7 +54,7 @@ def main() -> int:
     print("=" * 50)
     
     try:
-        tree, syntax_errors = parse_with_errors(source)
+        tree, syntax_errors = parse_with_errors_parserv2(source)
         
         if syntax_errors:
             print("Syntax errors:")

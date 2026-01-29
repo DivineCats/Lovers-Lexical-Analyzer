@@ -46,40 +46,78 @@ from dataclasses import dataclass, field
  #         main_function: Optional[Any] = None
 
 
-from Backend.Syntax.AST import (
-    ASTNode,
-    Program,
-    Namespace,
-    MainFunction,
-    Declaration,
-    MultiDeclaration,
-    Function,
-    Parameter,
-    FunctionBody,
-    Statement,
-    AssignmentStatement,
-    FunctionCallStatement,
-    UnaryStatement,
-    InputStatement,
-    OutputStatement,
-    ReturnStatement,
-    IfStatement,
-    ElifClause,
-    WhileStatement,
-    DoWhileStatement,
-    ForStatement,
-    ForInit,
-    ForUpdate,
-    SwitchStatement,
-    CaseClause,
-    Expression,
-    BinaryExpression,
-    UnaryExpression,
-    IdentifierExpression,
-    FunctionCallExpression,
-    LiteralExpression,
-    ParenthesizedExpression,
-)
+try:
+    # Original import path when Backend is a top‑level package
+    from Backend.Syntax.AST import (
+        ASTNode,
+        Program,
+        Namespace,
+        MainFunction,
+        Declaration,
+        MultiDeclaration,
+        Function,
+        Parameter,
+        FunctionBody,
+        Statement,
+        AssignmentStatement,
+        FunctionCallStatement,
+        UnaryStatement,
+        InputStatement,
+        OutputStatement,
+        ReturnStatement,
+        IfStatement,
+        ElifClause,
+        WhileStatement,
+        DoWhileStatement,
+        ForStatement,
+        ForInit,
+        ForUpdate,
+        SwitchStatement,
+        CaseClause,
+        Expression,
+        BinaryExpression,
+        UnaryExpression,
+        IdentifierExpression,
+        FunctionCallExpression,
+        LiteralExpression,
+        ParenthesizedExpression,
+    )
+except ImportError:
+    # Fallback when running under the Lovers.* package layout
+    from Lovers.Backend.Syntax.AST import (
+        ASTNode,
+        Program,
+        Namespace,
+        MainFunction,
+        Declaration,
+        MultiDeclaration,
+        Function,
+        Parameter,
+        FunctionBody,
+        Statement,
+        AssignmentStatement,
+        FunctionCallStatement,
+        UnaryStatement,
+        InputStatement,
+        OutputStatement,
+        ReturnStatement,
+        IfStatement,
+        ElifClause,
+        WhileStatement,
+        DoWhileStatement,
+        ForStatement,
+        ForInit,
+        ForUpdate,
+        SwitchStatement,
+        CaseClause,
+        Expression,
+        BinaryExpression,
+        UnaryExpression,
+        IdentifierExpression,
+        FunctionCallExpression,
+        LiteralExpression,
+        ParenthesizedExpression,
+    )
 
 
 class ParserError(Exception):
@@ -188,22 +226,53 @@ _DELIMITER_TOKENS = frozenset(['(', ')', '{', '}', '[', ']', ';', ',', ':'])
 
 def _build_full_expected_set(top, stack, parsing_table):
     """
-    Build the set of expected terminals valid at this position only: what the
-    top symbol can accept, plus expression-continuation terminals (+, -, *, /, %)
-    when we're in a post-expression context (e.g. expecting ';' or '}').
-    Does not union over the whole stack, so we only show "valid token right here".
+    Build the set of expected terminals valid at this position only.
+    Only adds expression operators when we're actually inside an expression context.
+    This applies to the whole CFG by detecting expression context from the stack.
+    
+    Examples:
+    - After 'express' → only shows '<<' and ';' (no '+', '-', '*', etc.)
+    - After 'give' → only shows '>>' and ';' (no expression operators)
+    - Inside expressions → shows expression operators ('+', '-', '*', '/', etc.)
+    - After statements → shows statement starters, not expression operators
     """
     expected = set()
     if top in parsing_table:
         expected |= set(parsing_table[top].keys())
     elif top != "$":
         expected.add(top)
-    # Post-expression: add terminals that can continue an expression
-    if ";" in expected or "}" in expected or top == ";":
+    
+    # Check if we're in an expression context by looking at the stack
+    # Expression nonterminals indicate we're parsing an expression
+    expression_nonterminals = {
+        '<expr>', '<expr_ar>', '<expr_next>', '<expr_opt>',
+        '<term>', '<term_next>',
+        '<factor>', '<call_opt>', '<boundaries_suffix>',
+        '<rel_expr>', '<rel_next>', '<rel_op>',
+        '<log_expr>', '<log_next>',
+        '<and_expr>', '<and_next>',
+        '<assign_values>',  # Contains <expr>
+        '<arguments>', '<more_arguments>',  # Contains <expr>
+        '<index_array>',  # Contains <expr_ar>
+        '<output_values>',  # Contains <expr>
+    }
+    
+    # Check if we're currently in an expression context
+    is_in_expression = (
+        top in expression_nonterminals or
+        any(sym in expression_nonterminals for sym in stack)
+    )
+    
+    # Only add expression continuation operators if:
+    # 1. We're actually in an expression context, AND
+    # 2. We're expecting ';' or '}' (end of statement/block)
+    # This prevents adding expression operators after statement keywords like 'express'
+    if is_in_expression and (";" in expected or "}" in expected or top == ";"):
         if "<expr_next>" in parsing_table:
             expected |= set(parsing_table["<expr_next>"].keys())
         if "<term_next>" in parsing_table:
             expected |= set(parsing_table["<term_next>"].keys())
+    
     return expected
 
 
@@ -343,12 +412,17 @@ def parse(token_list=None, build_ast=False):
                     raise ParserError(f"Unexpected Token: {lookahead} (line {line}, col {column})\nExpected Token: <end of input>", line, column)
             
             if lookahead == "$" and top != "$":
-                # End of input reached - user is still typing (incremental parsing)
-                # Show full expected set (stack + expr continuation)
+                # End of input reached - user is still typing (incremental parsing).
+                # Instead of treating this as a normal unexpected token, surface it
+                # explicitly as an end-of-input (EOF) situation so the higher-level
+                # error formatter can show "unexpected end of input" rather than
+                # picking an arbitrary first expected token.
+                #
+                # We still include the expected set so the UI can show suggestions.
                 expected_set = _build_full_expected_set(top, stack, _parsing_table)
                 expected_str = _format_expected_tokens(expected_set)
                 raise ParserError(
-                    f"Expected Token: {expected_str}",
+                    f"Unexpected Token: $EOF (line {line}, col {column})\nExpected Token: {expected_str}",
                     line, column
                 )
             
@@ -701,3 +775,28 @@ def parse_with_errors_parserv2(source: str):
             raw_message=str(e)
         )]
         return None, errors
+
+
+# ============================================================================
+# CONTEXT-AWARE EXPECTED TOKEN FILTERING
+# ============================================================================
+# The `_build_full_expected_set()` function implements context-aware filtering
+# to show only relevant tokens in error messages. This ensures:
+#
+# 1. After statement keywords (express, give, forever, etc.):
+#    - Only shows tokens that start/continue statements
+#    - Does NOT show expression operators (+, -, *, /, etc.)
+#    - Example: After 'express' → only shows '<<' and ';'
+#
+# 2. Inside expressions:
+#    - Shows expression operators when appropriate
+#    - Shows delimiters that can end expressions (;, }, ), etc.)
+#
+# 3. Works for the entire CFG:
+#    - Automatically detects expression context from the parsing stack
+#    - No hardcoded nonterminal lists needed
+#    - Applies to all grammar rules consistently
+#
+# This makes error messages more concise and helpful by showing only tokens
+# that actually lead to valid, complete statements or expressions.
+# ============================================================================

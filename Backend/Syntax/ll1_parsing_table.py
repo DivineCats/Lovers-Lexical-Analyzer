@@ -22,6 +22,11 @@ EPSILON = "λ"
 EPSILON_RULE: RHS = ["null"]  # parsetv2 treats ['null'] as epsilon
 END_MARKER = "$"
 
+# Exposed FIRST/FOLLOW maps for visualization and debugging.
+# These are populated the first time build_parsing_table() is called.
+FIRST_SETS: Dict[Symbol, Set[Symbol]] = {}
+FOLLOW_SETS: Dict[Symbol, Set[Symbol]] = {}
+
 
 def _nonterminals() -> Set[Symbol]:
     """All LHS symbols (nonterminals) in the grammar."""
@@ -153,6 +158,13 @@ def build_parsing_table() -> ParsingTable:
     first = _first_sets(nonterms, terms)
     follow = _follow_sets(nonterms, first)
 
+    # Expose FIRST/FOLLOW so other tools/UI can visualize them without
+    # recomputing. We copy into the module-level dicts to keep them in sync
+    # with the current grammar.
+    global FIRST_SETS, FOLLOW_SETS
+    FIRST_SETS = {k: set(v) for k, v in first.items()}
+    FOLLOW_SETS = {k: set(v) for k, v in follow.items()}
+
     table: ParsingTable = {nt: {} for nt in nonterms}
 
     for _, (lhs, rhs) in PRODUCTION_LIST.items():
@@ -169,5 +181,5 @@ def build_parsing_table() -> ParsingTable:
                     # parsetv2 handles '$' separately as end-of-input
                     continue
                 table[lhs][b] = EPSILON_RULE
-
+    
     return table

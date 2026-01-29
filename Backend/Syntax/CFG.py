@@ -84,9 +84,11 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     #   give >> x >> y >> z;
     65: ("<input_state>", ["give", ">>", "id", "<more_input_ids>", ";"]),
     66: ("<input_state>", ["overshare", "(", "id", ")", ";"]),
-    67: ("<output_state>", ["express", "<more_output>", ";"]),
-    68: ("<more_output>", ["<<", "<output_values>", "<more_output>"]),
-    69: ("<more_output>", ["λ"]),
+    # Output: require at least one '<< value' before ';'
+    #   express << <output_values> << <output_values> ... ;
+    67: ("<output_state>", ["express", "<<", "<output_values>", "<more_output_tail>", ";"]),
+    68: ("<more_output_tail>", ["<<", "<output_values>", "<more_output_tail>"]),
+    69: ("<more_output_tail>", ["λ"]),
     70: ("<output_values>", ["<expr>"]),
     71: ("<output_values>", ["periodt"]),
     73: ("<comeback_state>", ["comeback", "<expr_opt>", ";"]),
@@ -151,8 +153,8 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     127: ("<phase_lst>", ["phase", "<choose_const>", ":", "<body_func>", "breakup", ";", "<phase_lst_next>"]),
     128: ("<phase_lst_next>", ["<phase_lst>"]),
     129: ("<phase_lst_next>", ["λ"]),
-    130: ("<choose_const>", ["num_lit"]),
-    131: ("<choose_const>", ["string_lit"]),
+    130: ("<choose_const>", ["dear_lit"]),
+    131: ("<choose_const>", ["rant_lit"]),
     132: ("<bareminimum_opt>", ["bareminimum", ":", "<body_func>", "breakup", ";"]),
     133: ("<bareminimum_opt>", ["λ"]),
     134: ("<call_opt>", ["λ"]),

@@ -185,57 +185,72 @@ def initialize_parser():
 # Tokens that are shown quoted in expected-token messages
 _DELIMITER_TOKENS = frozenset(['(', ')', '{', '}', '[', ']', ';', ',', ':'])
 
+# Epsilon production as stored in the parsing table (matches ll1_parsing_table)
+_EPSILON_RULE = ['null']
+
+
+def _is_epsilon_rule(rule) -> bool:
+    """True if the production RHS is epsilon (null or λ)."""
+    return rule == _EPSILON_RULE or rule == ['λ']
+
+
+def get_all_expected_terminals(remaining_stack, parsing_table):
+    """
+    Recursive Expected Set Discovery: build the set of expected terminals from
+    the current parser stack so error messages are 'farsighted'.
+
+    - Takes the remaining sequence (stack with next-to-process at index 0).
+    - Recursively expands the top symbol:
+      - Terminal: add it to Expected and stop that branch.
+      - Non-terminal: add all lookahead terminals that could trigger a rule
+        (parsing_table[nt].keys()). If the non-terminal has an ε production,
+        'see through' and recursively check the next symbol on the stack.
+    - Returns a set of terminal strings (e.g. {'+', '-', 'id'}), not non-terminal names.
+    """
+    if not remaining_stack:
+        return set()
+    top = remaining_stack[0]
+    if top == "$":
+        return get_all_expected_terminals(remaining_stack[1:], parsing_table)
+    if top not in parsing_table:
+        # Terminal: add it and stop this branch
+        return {top}
+    # Non-terminal: collect all lookahead terminals that trigger a rule
+    expected = set(parsing_table[top].keys())
+    has_epsilon = any(_is_epsilon_rule(rule) for rule in parsing_table[top].values())
+    if has_epsilon and len(remaining_stack) > 1:
+        # See through ε and recurse on the rest of the stack
+        expected |= get_all_expected_terminals(remaining_stack[1:], parsing_table)
+    return expected
+
 
 def _build_full_expected_set(top, stack, parsing_table):
     """
-    Build the set of expected terminals valid at this position only.
-    Only adds expression operators when we're actually inside an expression context.
-    This applies to the whole CFG by detecting expression context from the stack.
-    
-    Examples:
-    - After 'express' → only shows '<<' and ';' (no '+', '-', '*', etc.)
-    - After 'give' → only shows '>>' and ';' (no expression operators)
-    - Inside expressions → shows expression operators ('+', '-', '*', '/', etc.)
-    - After statements → shows statement starters, not expression operators
+    Build the set of expected terminals at this position from the parsing table only.
+    No blocking or masking: expected = exactly what the CFG/table allows for the current stack top.
     """
     expected = set()
     if top in parsing_table:
         expected |= set(parsing_table[top].keys())
     elif top != "$":
         expected.add(top)
-    
-    # Check if we're in an expression context by looking at the stack
-    # Expression nonterminals indicate we're parsing an expression
-    expression_nonterminals = {
-        '<expr>', '<expr_ar>', '<expr_next>', '<expr_opt>',
-        '<term>', '<term_next>',
-        '<factor>', '<call_opt>', '<boundaries_suffix>',
-        '<rel_expr>', '<rel_next>', '<rel_op>',
-        '<log_expr>', '<log_next>',
-        '<and_expr>', '<and_next>',
-        '<assign_values>',  # Contains <expr>
-        '<arguments>', '<more_arguments>',  # Contains <expr>
-        '<index_array>',  # Contains <expr_ar>
-        '<output_values>',  # Contains <expr>
-    }
-    
-    # Check if we're currently in an expression context
-    is_in_expression = (
-        top in expression_nonterminals or
-        any(sym in expression_nonterminals for sym in stack)
-    )
-    
-    # Only add expression continuation operators if:
-    # 1. We're actually in an expression context, AND
-    # 2. We're expecting ';' or '}' (end of statement/block)
-    # This prevents adding expression operators after statement keywords like 'express'
-    if is_in_expression and (";" in expected or "}" in expected or top == ";"):
-        if "<expr_next>" in parsing_table:
-            expected |= set(parsing_table["<expr_next>"].keys())
-        if "<term_next>" in parsing_table:
-            expected |= set(parsing_table["<term_next>"].keys())
-    
     return expected
+
+
+def _get_context_aware_expected_set(top, stack, lookahead, parsing_table, last_consumed_token=None):
+    """
+    Build the set of expected terminals at this position using Recursive Expected
+    Set Discovery. The remaining sequence is [top] + stack in process order
+    (stack is stored with next-to-pop at the end, so we use [top] + reversed(stack)).
+    Error messages become 'farsighted' by seeing through ε and collecting terminals
+    from the whole remaining rule.
+    """
+    # Remaining sequence: next to process is top, then rest of stack (next-to-pop first)
+    if stack:
+        remaining_stack = [top] + list(reversed(stack))
+    else:
+        remaining_stack = [top]
+    return get_all_expected_terminals(remaining_stack, parsing_table)
 
 
 def _format_expected_tokens(expected_set):
@@ -379,9 +394,7 @@ def parse(token_list=None, build_ast=False):
                 # explicitly as an end-of-input (EOF) situation so the higher-level
                 # error formatter can show "unexpected end of input" rather than
                 # picking an arbitrary first expected token.
-                #
-                # We still include the expected set so the UI can show suggestions.
-                expected_set = _build_full_expected_set(top, stack, _parsing_table)
+                expected_set = _get_context_aware_expected_set(top, stack, lookahead, _parsing_table)
                 expected_str = _format_expected_tokens(expected_set)
                 raise ParserError(
                     f"Unexpected Token: $EOF (line {line}, col {column})\nExpected Token: {expected_str}",
@@ -403,8 +416,7 @@ def parse(token_list=None, build_ast=False):
                         # Push rule in reverse order
                         stack.extend(reversed(rule))
                 else:
-                    # Full expected: union over stack + expression continuation
-                    expected_set = _build_full_expected_set(top, stack, _parsing_table)
+                    expected_set = _get_context_aware_expected_set(top, stack, lookahead, _parsing_table)
                     expected_str = _format_expected_tokens(expected_set)
                     raise ParserError(
                         f"Unexpected Token: {lookahead} (line {line}, col {column})\nExpected Token: {expected_str}",
@@ -415,7 +427,7 @@ def parse(token_list=None, build_ast=False):
                 if top == "id" and lookahead in ("}", ";", "\n", "$"):
                     msg = f"Invalid Token after data type (line {line}, col {column})\nExpected Token: identifier"
                 else:
-                    expected_set = _build_full_expected_set(top, stack, _parsing_table)
+                    expected_set = _get_context_aware_expected_set(top, stack, lookahead, _parsing_table)
                     expected_str = _format_expected_tokens(expected_set)
                     msg = f"Unexpected Token: {lookahead} (line {line}, col {column})\nExpected Token: {expected_str}"
                 raise ParserError(msg, line, column)
@@ -742,22 +754,21 @@ def parse_with_errors_parserv2(source: str):
 # ============================================================================
 # CONTEXT-AWARE EXPECTED TOKEN FILTERING
 # ============================================================================
-# The `_build_full_expected_set()` function implements context-aware filtering
-# to show only relevant tokens in error messages. This ensures:
+# The `_get_context_aware_expected_set()` function builds the expected-token
+# set from the current parser state (top, stack, lookahead) so error messages
+# show only tokens valid in that context. It delegates to `_build_full_expected_set()`
+# in the general case and applies context rules when needed, e.g.:
 #
-# 1. After statement keywords (express, give, forever, etc.):
-#    - Only shows tokens that start/continue statements
-#    - Does NOT show expression operators (+, -, *, /, etc.)
-#    - Example: After 'express' → only shows '<<' and ';'
+# - At EOF after closing a top-level function (top "{" and <top_decls_opt> in stack):
+#   Shows program-level tokens (love, avoidant, boundaries, const, dear, etc.)
+#   and does NOT show '}' (valid only after <top_decls_opt> inside a boundaries block).
 #
-# 2. Inside expressions:
-#    - Shows expression operators when appropriate
-#    - Shows delimiters that can end expressions (;, }, ), etc.)
+# - After statement keywords (express, give, forever, etc.):
+#   Only shows tokens that start/continue statements; does NOT show expression
+#   operators (+, -, *, /, etc.) unless inside an expression.
 #
-# 3. Works for the entire CFG:
-#    - Automatically detects expression context from the parsing stack
-#    - No hardcoded nonterminal lists needed
-#    - Applies to all grammar rules consistently
+# - Inside expressions:
+#   Shows expression operators when appropriate and delimiters that end expressions.
 #
 # This makes error messages more concise and helpful by showing only tokens
 # that actually lead to valid, complete statements or expressions.

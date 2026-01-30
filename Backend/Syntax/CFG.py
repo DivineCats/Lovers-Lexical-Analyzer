@@ -9,12 +9,12 @@ from typing import Dict, List, Tuple
 
 # Production number -> (lhs, rhs). rhs is list of symbols; ["λ"] = epsilon.
 # Top-level: <top_decls_opt> (boundaries blocks, globals, sub-functions in any order), then love () { body }.
-# 136 productions; no dead rules; sequential numbering 1..136.
+# 136 base productions; paren-only rules 200..218 (expressions inside ( ) so ; is never valid).
 PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     1: ("<program>", ["<top_decls_opt>", "love", "(", ")", "{", "<body_func>", "}"]),
     2: ("<top_decls_opt>", ["<top_decl>", "<top_decls_opt>"]),
     3: ("<top_decls_opt>", ["λ"]),
-    4: ("<top_decl>", ["boundaries", "id", "{", "<top_decls_opt>", "}"]),
+    4: ("<top_decl>", ["boundaries", "id", "{", "<boundaries_decls_opt>", "}"]),
     5: ("<top_decl>", ["<data_type>", "id", "<top_after_id>"]),
     6: ("<top_decl>", ["const", "<data_type>", "id", "=", "<expr>", ";"]),
     7: ("<top_decl>", ["avoidant", "id", "(", "<parameter>", ")", "{", "<body_func>", "}"]),
@@ -61,7 +61,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     48: ("<unary_ops>", ["--"]),
     49: ("<arguments>", ["<expr>", "<more_arguments>"]),
     50: ("<arguments>", ["λ"]),
-    51: ("<more_arguments>", [",", "<expr>", "<more_arguments>"]),
+    51: ("<more_arguments>", [",", "<paren_expr>", "<more_arguments>"]),
     52: ("<more_arguments>", ["λ"]),
     53: ("<assign_ops>", ["="]),
     54: ("<assign_ops>", ["+="]),
@@ -90,7 +90,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     77: ("<term_next>", ["/", "<factor>", "<term_next>"]),
     78: ("<term_next>", ["%", "<factor>", "<term_next>"]),
     79: ("<term_next>", ["λ"]),
-    80: ("<factor>", ["(", "<expr>", ")"]),
+    80: ("<factor>", ["(", "<paren_expr>", ")"]),
     81: ("<factor>", ["id", "<call_opt>"]),
     82: ("<factor>", ["dear_lit"]),
     83: ("<factor>", ["dearest_lit"]),
@@ -147,6 +147,32 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     134: ("<index_array>", ["λ"]),
     135: ("<more_input_ids>", [">>", "id", "<more_input_ids>"]),
     136: ("<more_input_ids>", ["λ"]),
+    # =======================================================================
+    # PARENTHESIS-ONLY EXPRESSION HIERARCHY
+    # These rules mirror the main expression logic but are strictly for use
+    # inside ( ) so that "; " is never valid lookahead.
+    # =======================================================================
+    200: ("<paren_expr>", ["<paren_log_expr>"]),
+    201: ("<paren_log_expr>", ["<paren_and_expr>", "<paren_log_next>"]),
+    202: ("<paren_log_next>", ["||", "<paren_and_expr>", "<paren_log_next>"]),
+    203: ("<paren_log_next>", ["λ"]),
+    204: ("<paren_and_expr>", ["<paren_rel_expr>", "<paren_and_next>"]),
+    205: ("<paren_and_next>", ["&&", "<paren_rel_expr>", "<paren_and_next>"]),
+    206: ("<paren_and_next>", ["λ"]),
+    207: ("<paren_rel_expr>", ["<paren_expr_ar>", "<paren_rel_next>"]),
+    208: ("<paren_rel_next>", ["<rel_op>", "<paren_expr_ar>", "<paren_rel_next>"]),
+    209: ("<paren_rel_next>", ["λ"]),
+    210: ("<paren_expr_ar>", ["<paren_term>", "<paren_expr_next>"]),
+    211: ("<paren_expr_next>", ["+", "<paren_term>", "<paren_expr_next>"]),
+    212: ("<paren_expr_next>", ["-", "<paren_term>", "<paren_expr_next>"]),
+    213: ("<paren_expr_next>", ["λ"]),
+    214: ("<paren_term>", ["<factor>", "<paren_term_next>"]),
+    215: ("<paren_term_next>", ["*", "<factor>", "<paren_term_next>"]),
+    216: ("<paren_term_next>", ["/", "<factor>", "<paren_term_next>"]),
+    217: ("<paren_term_next>", ["%", "<factor>", "<paren_term_next>"]),
+    218: ("<paren_term_next>", ["λ"]),
+    300: ("<boundaries_decls_opt>", ["<top_decl>", "<boundaries_decls_opt>"]),
+    301: ("<boundaries_decls_opt>", ["λ"]),
 }
 
 # By nonterminal: lhs -> list of RHS (each RHS is list of symbols). Easy lookup.

@@ -295,7 +295,7 @@ TOKEN_DISPLAY_NAME = {
     "dear": "INT",
     "dearest": "FLOAT",
     "rant": "STRING",
-    "status": "STATUS",
+    "status": "BOOL",
     "give": "INPUT",
     "express": "OUTPUT",
     "overshare": "GETLINE",

@@ -36,7 +36,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     23: ("<data_type>", ["status"]),
     24: ("<parameter>", ["<function_parameter>", "<multi_parameter>"]),
     25: ("<parameter>", ["λ"]),
-    26: ("<function_parameter>", ["<data_type>", "id", "<array_decl>"]),
+    26: ("<function_parameter>", ["<data_type>", "id", "<param_array_decl>"]),
     27: ("<multi_parameter>", [",", "<function_parameter>", "<multi_parameter>"]),
     28: ("<multi_parameter>", ["λ"]),
     29: ("<body_func>", ["<local_decl_list>", "<statements>"]),
@@ -59,7 +59,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     46: ("<unary_state>", ["<unary_ops>", "id", ";"]),
     47: ("<unary_ops>", ["++"]),
     48: ("<unary_ops>", ["--"]),
-    49: ("<arguments>", ["<expr>", "<more_arguments>"]),
+    49: ("<arguments>", ["<paren_expr>", "<more_arguments>"]),
     50: ("<arguments>", ["λ"]),
     51: ("<more_arguments>", [",", "<paren_expr>", "<more_arguments>"]),
     52: ("<more_arguments>", ["λ"]),
@@ -91,14 +91,13 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     78: ("<term_next>", ["%", "<factor>", "<term_next>"]),
     79: ("<term_next>", ["λ"]),
     80: ("<factor>", ["(", "<paren_expr>", ")"]),
-    81: ("<factor>", ["id", "<call_opt>"]),
+    81: ("<factor>", ["id", "<factor_tail>"]),
     82: ("<factor>", ["dear_lit"]),
     83: ("<factor>", ["dearest_lit"]),
     84: ("<factor>", ["rant_lit"]),
     85: ("<factor>", ["<status_lit>"]),
     86: ("<status_lit>", ["greenflag"]),
     87: ("<status_lit>", ["redflag"]),
-    88: ("<call_opt>", ["<boundaries_suffix>", "(", "<arguments>", ")"]),
     89: ("<rel_expr>", ["<expr_ar>", "<rel_next>"]),
     90: ("<rel_next>", ["<rel_op>", "<expr_ar>", "<rel_next>"]),
     91: ("<rel_next>", ["λ"]),
@@ -138,9 +137,6 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     125: ("<choose_const>", ["rant_lit"]),
     126: ("<bareminimum_opt>", ["bareminimum", ":", "<body_func>", "breakup", ";"]),
     127: ("<bareminimum_opt>", ["λ"]),
-    128: ("<call_opt>", ["λ"]),
-    129: ("<boundaries_suffix>", ["::", "id"]),
-    130: ("<boundaries_suffix>", ["λ"]),
     131: ("<array_decl>", ["[", "]", "<array_decl>"]),
     132: ("<array_decl>", ["λ"]),
     133: ("<index_array>", ["[", "<expr_ar>", "]", "<index_array>"]),
@@ -173,6 +169,21 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     218: ("<paren_term_next>", ["λ"]),
     300: ("<boundaries_decls_opt>", ["<top_decl>", "<boundaries_decls_opt>"]),
     301: ("<boundaries_decls_opt>", ["λ"]),
+    320: ("<factor_tail>", ["[", "<expr>", "]", "<factor_tail>"]),
+
+     # 2. Function Call: ( args )
+    321: ("<factor_tail>", ["(", "<arguments>", ")"]),
+
+    # 3. Post-Increment / Decrement
+    322: ("<factor_tail>", ["++"]),
+    323: ("<factor_tail>", ["--"]),
+
+    # 4. Empty (It was just a plain variable)
+    324: ("<factor_tail>", ["λ"]),
+    330: ("<param_array_decl>", ["[", "]", "<param_array_decl>"]),
+    331: ("<param_array_decl>", ["λ"]),
+    325: ("<factor_tail>", ["::", "id", "<factor_tail>"]),
+    340: ("<id_suffix>", ["::", "id", "<id_suffix>"]),
 }
 
 # By nonterminal: lhs -> list of RHS (each RHS is list of symbols). Easy lookup.

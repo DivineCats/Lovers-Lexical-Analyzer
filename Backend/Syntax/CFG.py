@@ -52,7 +52,9 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     39: ("<statements>", ["<choose_state>", "<statements>"]),
     40: ("<statements>", ["<unary_state>", "<statements>"]),
     41: ("<statements>", ["λ"]),
-    42: ("<id_suffix>", ["<index_array>", "<assign_ops>", "<assign_values>", ";"]),
+    42: ("<id_suffix>", ["[", "<expr>", "]", "<id_suffix>"]),
+
+    # Keep these lines exactly as they are:
     43: ("<id_suffix>", ["<assign_ops>", "<assign_values>", ";"]),
     44: ("<id_suffix>", ["(", "<arguments>", ")", ";"]),
     45: ("<id_suffix>", ["<unary_ops>", ";"]),

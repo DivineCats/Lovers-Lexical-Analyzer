@@ -70,7 +70,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     57: ("<assign_ops>", ["/="]),
     58: ("<assign_ops>", ["%="]),
     59: ("<assign_values>", ["<expr>"]),
-    60: ("<input_state>", ["give", ">>", "id", "<more_input_ids>", ";"]),
+    60: ("<input_state>", ["give", ">>", "id", "<input_tail>", "<more_input_ids>", ";"]),
     61: ("<input_state>", ["overshare", "(", "id", ")", ";"]),
     62: ("<output_state>", ["express", "<<", "<output_values>", "<more_output_tail>", ";"]),
     63: ("<more_output_tail>", ["<<", "<output_values>", "<more_output_tail>"]),
@@ -137,11 +137,11 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     125: ("<choose_const>", ["rant_lit"]),
     126: ("<bareminimum_opt>", ["bareminimum", ":", "<body_func>", "breakup", ";"]),
     127: ("<bareminimum_opt>", ["λ"]),
-    131: ("<array_decl>", ["[", "]", "<array_decl>"]),
-    132: ("<array_decl>", ["λ"]),
+    131: ("<array_decl>", ["[", "<array_size>", "]", "<array_decl>"]),
+    132: ("<array_decl>", ["λ"]),  # (If not already there as the terminator)
     133: ("<index_array>", ["[", "<expr_ar>", "]", "<index_array>"]),
     134: ("<index_array>", ["λ"]),
-    135: ("<more_input_ids>", [">>", "id", "<more_input_ids>"]),
+    135: ("<more_input_ids>", [">>", "id", "<input_tail>", "<more_input_ids>"]),
     136: ("<more_input_ids>", ["λ"]),
     # =======================================================================
     # PARENTHESIS-ONLY EXPRESSION HIERARCHY
@@ -184,6 +184,10 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     331: ("<param_array_decl>", ["λ"]),
     325: ("<factor_tail>", ["::", "id", "<factor_tail>"]),
     340: ("<id_suffix>", ["::", "id", "<id_suffix>"]),
+    350: ("<input_tail>", ["[", "<expr>", "]", "<input_tail>"]), 
+    351: ("<input_tail>", ["λ"]),
+    133: ("<array_size>", ["dear_lit"]), # Allows numbers like [5]
+    134: ("<array_size>", ["λ"]),        # Allows empty like []
 }
 
 # By nonterminal: lhs -> list of RHS (each RHS is list of symbols). Easy lookup.

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import Header from "./components/Header";
 import Editor, { type FileTab } from "./components/Editor";
 import TokenTable from "./components/TokenTable";
@@ -56,6 +56,7 @@ export default function App() {
   const [lexErrors, setLexErrors] = useState<string[]>([]);
   const [backendError, setBackendError] = useState<string | null>(null);
   const [parserType, setParserType] = useState<"rd" | "parserv2">("parserv2");
+  const [isRunning, setIsRunning] = useState(false);
 
   const lexSource = useCallback(async (text: string): Promise<LexResult> => {
     const body = text ?? "";
@@ -209,20 +210,20 @@ export default function App() {
     }
   }, [source, parserType]);
 
-  useEffect(() => {
-    const handle = setTimeout(() => {
-      void (async () => {
-        const { rows: toks, hasLexError } = await lexSource(source);
-        if (!hasLexError && toks.length) {
-          // Run syntax validation after successful lexing
-          await syntaxSource();
-        } else {
-          setValidation(null);
-        }
-      })();
-    }, 400);
-    return () => clearTimeout(handle);
-  }, [lexSource, syntaxSource, source, parserType]);
+  const handleRunCode = useCallback(async () => {
+    setIsRunning(true);
+    try {
+      const { rows: toks, hasLexError } = await lexSource(source);
+      if (!hasLexError && toks.length) {
+        // Run syntax validation after successful lexing
+        await syntaxSource();
+      } else {
+        setValidation(null);
+      }
+    } finally {
+      setIsRunning(false);
+    }
+  }, [lexSource, syntaxSource, source]);
 
   const handleEditorChange = useCallback(
     (files: FileTab[], activeId: string) => {
@@ -238,6 +239,36 @@ export default function App() {
         label="main.love"
         right={
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <button
+              onClick={handleRunCode}
+              disabled={isRunning}
+              style={{
+                padding: "8px 16px",
+                borderRadius: "6px",
+                border: "1px solid rgba(255, 191, 191, 0.35)",
+                background: isRunning ? "#875656" : "#c9586c",
+                color: "#fff",
+                fontSize: "13px",
+                fontWeight: "600",
+                cursor: isRunning ? "not-allowed" : "pointer",
+                transition: "all 0.2s ease",
+                boxShadow: "0 2px 8px rgba(233, 30, 99, 0.3)",
+              }}
+              onMouseEnter={(e) => {
+                if (!isRunning) {
+                  e.currentTarget.style.background = "#e91e63";
+                  e.currentTarget.style.boxShadow = "0 2px 12px rgba(233, 30, 99, 0.5)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isRunning) {
+                  e.currentTarget.style.background = "#c9586c";
+                  e.currentTarget.style.boxShadow = "0 2px 8px rgba(233, 30, 99, 0.3)";
+                }
+              }}
+            >
+              {isRunning ? "Running..." : "▶ Run"}
+            </button>
             <select
               value={parserType}
               onChange={(e) => setParserType(e.target.value as "rd" | "parserv2")}

@@ -7,6 +7,7 @@ import "./App.css";
 
 type TokenRow = { lexeme: string; token: string; tokenType: string };
 type TokenStatus = "idle" | "loading" | "ready" | "error";
+type LexResult = { rows: TokenRow[]; hasLexError: boolean };
 
 const TOKEN_STATUS_LABEL: Record<TokenStatus, string> = {
   idle: "Idle",
@@ -15,7 +16,7 @@ const TOKEN_STATUS_LABEL: Record<TokenStatus, string> = {
   error: "Error",
 };
 
-const DEFAULT_SOURCE = `love main() {
+const DEFAULT_SOURCE = `love () {
   express << "hello, lover";
 }
 `;
@@ -52,21 +53,29 @@ export default function App() {
   const [lastRunAt, setLastRunAt] = useState<Date | null>(null);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [lexError, setLexError] = useState<string | null>(null);
+  const [lexErrors, setLexErrors] = useState<string[]>([]);
+  const [backendError, setBackendError] = useState<string | null>(null);
+  const [parserType, setParserType] = useState<"rd" | "parserv2">("parserv2");
+  const [isRunning, setIsRunning] = useState(false);
 
-  const lexSource = useCallback(async (text: string) => {
+  const lexSource = useCallback(async (text: string): Promise<LexResult> => {
     const body = text ?? "";
-    if (!body.trim()) {
+    if (!body) {
       setRows([]);
       setStatus("idle");
       setError(null);
       setLexError(null);
+      setLexErrors([]);
+      setBackendError(null);
       setLastRunAt(null);
-      return [];
+      return { rows: [], hasLexError: false };
     }
 
     setStatus("loading");
     setError(null);
     setLexError(null);
+    setLexErrors([]);
+    setBackendError(null);
 
     try {
       const resp = await fetch(LEX_ENDPOINT, {
@@ -81,7 +90,12 @@ export default function App() {
           (payload?.error as string | undefined) ??
           (payload?.message as string | undefined) ??
           raw?.trim();
-        throw new Error(detail || `Request failed (${resp.status})`);
+        const backendMsg = detail || `Request failed (${resp.status})`;
+        setBackendError(backendMsg);
+        setError(backendMsg);
+        setStatus("error");
+        setRows([]);
+        return { rows: [], hasLexError: false };
       }
 
       const nextRows = Array.isArray(payload?.rows)
@@ -90,20 +104,30 @@ export default function App() {
 
       setRows(nextRows);
       setStatus("ready");
-      setLexError(
-        typeof payload?.error === "string" && payload.error.trim()
-          ? (payload.error as string)
-          : null
-      );
+      
+      // Check for multiple errors
+      const hasMultipleErrors = Array.isArray(payload?.errors) && payload.errors.length > 0;
+      const hasSingleError = typeof payload?.error === "string" && payload.error.trim().length > 0;
+      
+      if (hasMultipleErrors) {
+        setLexErrors(payload.errors as string[]);
+        setLexError(payload.errors.join("\n\n"));
+      } else if (hasSingleError) {
+        setLexError(payload.error as string);
+        setLexErrors([payload.error as string]);
+      }
+      
       setLastRunAt(new Date());
-      return nextRows;
+      return { rows: nextRows, hasLexError: hasMultipleErrors || hasSingleError };
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to lex source.";
+      setBackendError(message);
       setError(message);
-      setLexError(message);
+      setLexError(null);
+      setLexErrors([]);
       setStatus("error");
-      return [];
+      return { rows: [], hasLexError: false };
     }
   }, []);
 
@@ -124,7 +148,7 @@ export default function App() {
       const resp = await fetch(VALIDATE_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: body }),
+        body: JSON.stringify({ source: body, parser: parserType }),
       });
       const { data: payload, raw } = await parseResponseBody(resp);
 
@@ -143,6 +167,23 @@ export default function App() {
         (payload?.error as string | undefined) ??
         raw?.trim() ??
         `Validation failed (HTTP ${resp.status})`;
+
+      const syntaxErrors = Array.isArray(payload?.errors)
+        ? (payload.errors as any[]).map(err => ({
+            ok: Boolean(err?.ok ?? false),
+            message: (err?.message as string) ?? "Syntax error",
+            code: err?.code as string | undefined,
+            token: err?.token as ValidationResult["token"],
+            expected: Array.isArray(err?.expected)
+              ? (err.expected as string[])
+              : undefined,
+            line: err?.line as number | undefined,
+            column: err?.column as number | undefined,
+            found: err?.found as string | undefined,
+            context: err?.context as string | undefined,
+          }))
+        : undefined;
+
       const failure: ValidationResult = {
         ok: false,
         message: failureMessage,
@@ -151,6 +192,10 @@ export default function App() {
         expected: Array.isArray(payload?.expected)
           ? (payload.expected as string[])
           : undefined,
+        errors: syntaxErrors,
+        line: payload?.line as number | undefined,
+        column: payload?.column as number | undefined,
+        found: payload?.found as string | undefined,
       };
       setValidation(failure);
       return failure;
@@ -163,20 +208,21 @@ export default function App() {
       setValidation(failure);
       return failure;
     }
-  }, [source]);
+  }, [source, parserType]);
 
-  useEffect(() => {
-    const handle = setTimeout(() => {
-      void (async () => {
-        const toks = await lexSource(source);
-        if (toks.length) {
-          await syntaxSource();
-        } else {
-          setValidation(null);
-        }
-      })();
-    }, 400);
-    return () => clearTimeout(handle);
+  const handleRunCode = useCallback(async () => {
+    setIsRunning(true);
+    try {
+      const { rows: toks, hasLexError } = await lexSource(source);
+      if (!hasLexError && toks.length) {
+        // Run syntax validation after successful lexing
+        await syntaxSource();
+      } else {
+        setValidation(null);
+      }
+    } finally {
+      setIsRunning(false);
+    }
   }, [lexSource, syntaxSource, source]);
 
   const handleEditorChange = useCallback(
@@ -191,7 +237,56 @@ export default function App() {
     <>
       <Header
         label="main.love"
-        right={<span className={`status status--${status}`}>{TOKEN_STATUS_LABEL[status]}</span>}
+        right={
+          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+            <button
+              onClick={handleRunCode}
+              disabled={isRunning}
+              style={{
+                padding: "8px 16px",
+                borderRadius: "6px",
+                border: "1px solid rgba(255, 191, 191, 0.35)",
+                background: isRunning ? "#875656" : "#c9586c",
+                color: "#fff",
+                fontSize: "13px",
+                fontWeight: "600",
+                cursor: isRunning ? "not-allowed" : "pointer",
+                transition: "all 0.2s ease",
+                boxShadow: "0 2px 8px rgba(233, 30, 99, 0.3)",
+              }}
+              onMouseEnter={(e) => {
+                if (!isRunning) {
+                  e.currentTarget.style.background = "#e91e63";
+                  e.currentTarget.style.boxShadow = "0 2px 12px rgba(233, 30, 99, 0.5)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isRunning) {
+                  e.currentTarget.style.background = "#c9586c";
+                  e.currentTarget.style.boxShadow = "0 2px 8px rgba(233, 30, 99, 0.3)";
+                }
+              }}
+            >
+              {isRunning ? "Running..." : "▶ Run"}
+            </button>
+            <select
+              value={parserType}
+              onChange={(e) => setParserType(e.target.value as "rd" | "parserv2")}
+              style={{
+                padding: "4px 8px",
+                borderRadius: "4px",
+                border: "1px solid #ccc",
+                fontSize: "12px",
+                cursor: "pointer"
+              }}
+              title="Choose parser: Recursive Descent or LL(1) Table-Driven"
+            >
+              <option value="parserv2">LL(1) Table-Driven</option>
+              <option value="rd">Recursive Descent</option>
+            </select>
+            <span className={`status status--${status}`}>{TOKEN_STATUS_LABEL[status]}</span>
+          </div>
+        }
       />
       <main className="app">
         <section className="panel panel--editor">
@@ -204,6 +299,8 @@ export default function App() {
           <Terminal
             validation={validation}
             lexError={lexError}
+            lexErrors={lexErrors}
+            backendError={backendError}
           />
         </section>
       </main>

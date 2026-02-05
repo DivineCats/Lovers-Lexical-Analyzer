@@ -1,0 +1,22 @@
+pip install flask-cors
+pip install flask
+npm install monaco-editor
+npm install @mui/material @emotion/react @emotion/styled
+npm install 
+
+
+Running the Program:
+
+Backend
+Navigate to the backend directory:
+
+terminal:
+cd backend
+python -m Backend.Lexical.main
+
+
+cd .. 
+
+cd frontend
+
+npm run dev

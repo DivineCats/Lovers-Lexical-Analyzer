@@ -1,3 +1,4 @@
+import { useState } from "react";
 import "./Terminals.css";
 import {
   getConstructionHint,
@@ -56,7 +57,10 @@ type Props = {
   backendError?: string | null;
 };
 
+type TabType = "lexical" | "syntax" | "semantic";
+
 export default function Terminal({ validation = null, lexError = null, lexErrors = [], backendError = null }: Props) {
+  const [activeTab, setActiveTab] = useState<TabType>("lexical");
   // Parse all errors into structured format
   const errors: ErrorItem[] = [];
 
@@ -180,22 +184,39 @@ export default function Terminal({ validation = null, lexError = null, lexErrors
   // Check if we should show the "resolve lexical first" prompt
   const hasLexicalErrors = lexicalCount > 0;
 
+  // Filter errors based on active tab
+  const filteredErrors = errors.filter(e => e.type === activeTab);
+
   return (
     <div className="terminal-panel">
-      <div className="header">Terminal</div>
+      <div className="terminal-header">
+        <div className="header">Terminal</div>
+        <div className="tab-navigation">
+          <button 
+            className={`tab-button ${activeTab === "lexical" ? "active" : ""}`}
+            onClick={() => setActiveTab("lexical")}
+          >
+            Lexical ({lexicalCount})
+          </button>
+          <button 
+            className={`tab-button ${activeTab === "syntax" ? "active" : ""}`}
+            onClick={() => setActiveTab("syntax")}
+          >
+            Syntax ({syntaxCount})
+          </button>
+          <button 
+            className={`tab-button ${activeTab === "semantic" ? "active" : ""}`}
+            onClick={() => setActiveTab("semantic")}
+          >
+            Semantic ({semanticCount})
+          </button>
+        </div>
+      </div>
       <div className="term-log" aria-live="polite">
-        {hasErrors && (
-          <div className="error-summary">
-            {lexicalCount > 0 && <span className="error-count">Lexical: {lexicalCount}</span>}
-            {syntaxCount > 0 && <span className="error-count">Syntax: {syntaxCount}</span>}
-            {semanticCount > 0 && <span className="error-count">Semantic: {semanticCount}</span>}
-            {backendCount > 0 && <span className="error-count">Backend: {backendCount}</span>}
-          </div>
+        {filteredErrors.length === 0 && (
+          <div className="term-log__empty">No {activeTab} errors detected.</div>
         )}
-        {errors.length === 0 && (
-          <div className="term-log__empty">No errors detected.</div>
-        )}
-        {errors.map((error, idx) => {
+        {filteredErrors.map((error, idx) => {
           const constructionHint = error.type === "syntax" ? getConstructionHint(error.expected, error.message, error.unexpectedToken) : null;
           // Universal syntax error format: first line = what went wrong; second line = expected token(s) from CFG (always shown in bar)
           const lines = error.message.split(/\n/).map((s) => s.trim()).filter(Boolean);
@@ -255,7 +276,7 @@ export default function Terminal({ validation = null, lexError = null, lexErrors
           );
         })}
         {/* Show prompt to resolve lexical errors first before syntax analysis */}
-        {hasLexicalErrors && (
+        {hasLexicalErrors && activeTab === "syntax" && (
           <div className="error-container">
             <div className="error-item">
               <span className="error-badge error-badge--syntax">SYNTAX</span>

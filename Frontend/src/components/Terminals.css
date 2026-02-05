@@ -13,6 +13,12 @@
   border-radius: 12px;
 }
 
+.terminal-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .terminal-panel .header {
   font-weight: 700;
   color: #fff;
@@ -20,6 +26,51 @@
   border-radius: 6px;
   background: none;
   border: none;
+  margin: 0;
+}
+
+.tab-navigation {
+  display: flex;
+  gap: 4px;
+  padding: 0 12px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.tab-navigation::-webkit-scrollbar {
+  height: 4px;
+}
+
+.tab-navigation::-webkit-scrollbar-thumb {
+  background: rgba(255, 191, 191, 0.4);
+  border-radius: 2px;
+}
+
+.tab-button {
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 191, 191, 0.2);
+  border-radius: 6px 6px 0 0;
+  color: #f6e7e7;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.tab-button:hover {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 191, 191, 0.35);
+}
+
+.tab-button.active {
+  background: var(--term-log-bg, #2b0c0c);
+  border-color: #e91e63;
+  border-bottom-color: var(--term-log-bg, #2b0c0c);
+  color: #fff;
 }
 
 .error-summary {

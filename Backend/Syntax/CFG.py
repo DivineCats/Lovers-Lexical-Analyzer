@@ -100,6 +100,8 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     85: ("<factor>", ["<status_lit>"]),
     86: ("<status_lit>", ["greenflag"]),
     87: ("<status_lit>", ["redflag"]),
+    88: ("<factor>", ["-", "<factor>"]),
+    299: ("<factor>", ["+", "<factor>"]),
     89: ("<rel_expr>", ["<expr_ar>", "<rel_next>"]),
     90: ("<rel_next>", ["<rel_op>", "<expr_ar>", "<rel_next>"]),
     91: ("<rel_next>", ["λ"]),
@@ -141,8 +143,6 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     127: ("<bareminimum_opt>", ["λ"]),
     131: ("<array_decl>", ["[", "<array_size>", "]", "<array_decl>"]),
     132: ("<array_decl>", ["λ"]),  # (If not already there as the terminator)
-    133: ("<index_array>", ["[", "<expr_ar>", "]", "<index_array>"]),
-    134: ("<index_array>", ["λ"]),
     135: ("<more_input_ids>", [">>", "id", "<input_tail>", "<more_input_ids>"]),
     136: ("<more_input_ids>", ["λ"]),
     # =======================================================================

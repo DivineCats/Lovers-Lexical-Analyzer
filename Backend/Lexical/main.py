@@ -47,7 +47,7 @@ def validate():
     if not source.strip():
         return jsonify({
             "ok": False,
-            "message": "Source is empty",
+            "message": "Expected program to start with love () { }.",
             "code": "ERR_EMPTY"
         }), 400
 

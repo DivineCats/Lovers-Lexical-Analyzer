@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Header from "./components/Header";
 import Editor, { type FileTab } from "./components/Editor";
 import TokenTable from "./components/TokenTable";
@@ -26,6 +26,17 @@ const DEFAULT_FILE: FileTab = {
   name: "main.love",
   content: DEFAULT_SOURCE,
 };
+
+const EMPTY_SOURCE_MESSAGE = "Expected program to start with love () { }.";
+
+function useDebounce<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(id);
+  }, [value, delayMs]);
+  return debounced;
+}
 
 const LEX_ENDPOINT = import.meta.env.VITE_LEX_ENDPOINT?.trim() || "/lex";
 const VALIDATE_ENDPOINT =
@@ -58,9 +69,13 @@ export default function App() {
   const [parserType, setParserType] = useState<"rd" | "parserv2">("parserv2");
   const [isRunning, setIsRunning] = useState(false);
 
+  const debouncedSource = useDebounce(source, 450);
+
   const lexSource = useCallback(async (text: string): Promise<LexResult> => {
     const body = text ?? "";
-    if (!body) {
+    if (!body.trim()) {
+      // Empty or whitespace-only source: no lexical error, clear tokens and status.
+      // The syntax stage will report a structured ERR_EMPTY instead.
       setRows([]);
       setStatus("idle");
       setError(null);
@@ -131,12 +146,12 @@ export default function App() {
     }
   }, []);
 
-  const syntaxSource = useCallback(async (): Promise<ValidationResult> => {
-    const body = source ?? "";
-    if (!body.trim()) {
+  const syntaxSource = useCallback(async (contentOverride?: string): Promise<ValidationResult> => {
+    const body = (contentOverride ?? source ?? "").trim();
+    if (!body) {
       const res: ValidationResult = {
         ok: false,
-        message: "Source is empty. Expected `love main() { ... }`.",
+        message: EMPTY_SOURCE_MESSAGE,
         code: "ERR_EMPTY",
         expected: ["love"],
       };
@@ -148,7 +163,7 @@ export default function App() {
       const resp = await fetch(VALIDATE_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: body, parser: parserType }),
+        body: JSON.stringify({ source: contentOverride ?? source, parser: parserType }),
       });
       const { data: payload, raw } = await parseResponseBody(resp);
 
@@ -210,13 +225,33 @@ export default function App() {
     }
   }, [source, parserType]);
 
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { hasLexError } = await lexSource(debouncedSource);
+      if (cancelled) return;
+      // If lexing succeeds (or source is empty), always run syntax;
+      // only skip syntax when there are real lexical errors.
+      if (!hasLexError) {
+        await syntaxSource(debouncedSource);
+      } else {
+        setValidation(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [debouncedSource, lexSource, syntaxSource]);
+
+  const hasLexOrSyntaxError =
+    lexErrors.length > 0 || (validation != null && !validation.ok);
+
   const handleRunCode = useCallback(async () => {
     setIsRunning(true);
     try {
-      const { rows: toks, hasLexError } = await lexSource(source);
-      if (!hasLexError && toks.length) {
-        // Run syntax validation after successful lexing
-        await syntaxSource();
+      const { hasLexError } = await lexSource(source);
+      // Run syntax whenever lexing succeeds (or source is empty),
+      // and only clear syntax state on true lexical errors.
+      if (!hasLexError) {
+        await syntaxSource(source);
       } else {
         setValidation(null);
       }
@@ -238,53 +273,20 @@ export default function App() {
       <Header
         label="main.love"
         right={
-          <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <div className="header-actions">
             <button
               onClick={handleRunCode}
-              disabled={isRunning}
-              style={{
-                padding: "8px 16px",
-                borderRadius: "6px",
-                border: "1px solid rgba(255, 191, 191, 0.35)",
-                background: isRunning ? "#875656" : "#c9586c",
-                color: "#fff",
-                fontSize: "13px",
-                fontWeight: "600",
-                cursor: isRunning ? "not-allowed" : "pointer",
-                transition: "all 0.2s ease",
-                boxShadow: "0 2px 8px rgba(233, 30, 99, 0.3)",
-              }}
-              onMouseEnter={(e) => {
-                if (!isRunning) {
-                  e.currentTarget.style.background = "#e91e63";
-                  e.currentTarget.style.boxShadow = "0 2px 12px rgba(233, 30, 99, 0.5)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (!isRunning) {
-                  e.currentTarget.style.background = "#c9586c";
-                  e.currentTarget.style.boxShadow = "0 2px 8px rgba(233, 30, 99, 0.3)";
-                }
-              }}
+              disabled={isRunning || hasLexOrSyntaxError}
+              className={[
+                "run-button",
+                (isRunning || hasLexOrSyntaxError) ? "run-button--disabled" : "",
+                hasLexOrSyntaxError ? "run-button--error" : "",
+              ].filter(Boolean).join(" ")}
             >
               {isRunning ? "Running..." : "▶ Run"}
             </button>
-            <select
-              value={parserType}
-              onChange={(e) => setParserType(e.target.value as "rd" | "parserv2")}
-              style={{
-                padding: "4px 8px",
-                borderRadius: "4px",
-                border: "1px solid #ccc",
-                fontSize: "12px",
-                cursor: "pointer"
-              }}
-              title="Choose parser: Recursive Descent or LL(1) Table-Driven"
-            >
-              <option value="parserv2">LL(1) Table-Driven</option>
-              <option value="rd">Recursive Descent</option>
-            </select>
-            <span className={`status status--${status}`}>{TOKEN_STATUS_LABEL[status]}</span>
+
+            <span className={`status-light status-light--${status}`} title={TOKEN_STATUS_LABEL[status]} aria-label={TOKEN_STATUS_LABEL[status]} />
           </div>
         }
       />

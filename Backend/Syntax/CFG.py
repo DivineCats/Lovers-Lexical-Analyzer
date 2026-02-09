@@ -86,6 +86,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     40: ("<simple_val>", ["id"]),
     41: ("<simple_val>", ["-", "dear_lit"]),
     42: ("<simple_val>", ["-", "dearest_lit"]),
+    443: ("<simple_val>", ["λ"]),
 
     # ==========================================
     # 5. DATA TYPES & PARAMETERS

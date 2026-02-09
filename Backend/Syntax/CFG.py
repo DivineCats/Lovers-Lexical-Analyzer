@@ -16,16 +16,16 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     3: ("<top_decls_opt>", ["λ"]),
     4: ("<top_decl>", ["boundaries", "id", "{", "<boundaries_decls_opt>", "}"]),
     5: ("<top_decl>", ["<data_type>", "id", "<top_after_id>"]),
-    6: ("<top_decl>", ["const", "<data_type>", "id", "=", "<expr>", ";"]),
+    6: ("<top_decl>", ["const", "<data_type>", "id", "=", "<expr_ar>", ";"]),
     7: ("<top_decl>", ["avoidant", "id", "(", "<parameter>", ")", "{", "<body_func>", "}"]),
     8: ("<top_after_id>", ["(", "<parameter>", ")", "{", "<body_func>", "}"]),
-    9: ("<top_after_id>", ["<array_decl>", "<var_initial>", "<multi_decl>", ";"]),
+    9: ("<top_after_id>", ["[", "<array_size>", "]", "<array_assign>", "<multi_decl>", ";"]),
     10: ("<multi_decl>", [",", "id", "<array_decl>", "<var_initial>", "<multi_decl>"]),
     11: ("<multi_decl>", ["λ"]),
-    12: ("<var_initial>", ["=", "<expr>"]),
+    12: ("<var_initial>", ["=", "<expr_ar>"]),
     13: ("<var_initial>", ["=", "<init_value>"]),
     14: ("<var_initial>", ["λ"]),
-    15: ("<init_value>", ["<expr>"]),
+    15: ("<init_value>", ["<simple_val>"]),
     16: ("<init_value>", ["{", "<array_lit_list>", "}"]),
     17: ("<array_lit_list>", ["<init_value>", "<more_array_lit>"]),
     18: ("<more_array_lit>", [",", "<init_value>", "<more_array_lit>"]),
@@ -42,7 +42,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     29: ("<body_func>", ["<local_decl_list>", "<statements>"]),
     30: ("<local_decl_list>", ["<local_decl>", "<local_decl_list>"]),
     31: ("<local_decl_list>", ["λ"]),
-    32: ("<local_decl>", ["<data_type>", "id", "<array_decl>", "<var_initial>", "<multi_decl>", ";"]),
+    32: ("<local_decl>", ["<data_type>", "id", "<decl_tail>"]),
     33: ("<statements>", ["id", "<id_suffix>", "<statements>"]),
     34: ("<statements>", ["<input_state>", "<statements>"]),
     35: ("<statements>", ["<output_state>", "<statements>"]),
@@ -52,6 +52,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     39: ("<statements>", ["<choose_state>", "<statements>"]),
     40: ("<statements>", ["<unary_state>", "<statements>"]),
     41: ("<statements>", ["λ"]),
+    #500: ("<statements>", ["<local_decl>", "<statements>"]), for declaration after ng statements
     42: ("<id_suffix>", ["[", "<expr>", "]", "<id_suffix>"]),
 
     # Keep these lines exactly as they are:
@@ -71,7 +72,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     56: ("<assign_ops>", ["*="]),
     57: ("<assign_ops>", ["/="]),
     58: ("<assign_ops>", ["%="]),
-    59: ("<assign_values>", ["<expr>"]),
+    59: ("<assign_values>", ["<expr_ar>"]),
     60: ("<input_state>", ["give", ">>", "id", "<input_tail>", "<more_input_ids>", ";"]),
     61: ("<input_state>", ["overshare", "(", "id", ")", ";"]),
     62: ("<output_state>", ["express", "<<", "<output_values>", "<more_output_tail>", ";"]),
@@ -128,8 +129,8 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     112: ("<pursue_stmt>", ["pursue", "(", "<expr>", ")", "{", "<body_func>", "}"]),
     113: ("<while_stmt>", ["while", "(", "<expr>", ")", "{", "<body_func>", "}"]),
     114: ("<for_stmt>", ["for", "(", "<for_init>", ";", "<expr>", ";", "<for_ud>", ")", "{", "<body_func>", "}"]),
-    115: ("<for_init>", ["<data_type>", "id", "=", "<expr>"]),
-    116: ("<for_init>", ["id", "=", "<expr>"]),
+    115: ("<for_init>", ["<data_type>", "id", "=", "<expr_ar>"]),
+    116: ("<for_init>", ["id", "=", "<expr_ar>"]),
     117: ("<for_ud>", ["id", "<assign_ops>", "<expr>"]),
     118: ("<for_ud>", ["id", "<unary_ops>"]),
     119: ("<for_ud>", ["<unary_ops>", "id"]),
@@ -190,6 +191,31 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     351: ("<input_tail>", ["λ"]),
     133: ("<array_size>", ["dear_lit"]), # Allows numbers like [5]
     134: ("<array_size>", ["λ"]),        # Allows empty like []
+    360: ("<factor>", ["++", "id"]), 
+    361: ("<factor>", ["--", "id"]),
+    362: ("<statements>", ["<break_state>", "<statements>"]),
+    364: ("<break_state>", ["breakup", ";"]),
+    355: ("<scalar_assign>", ["=", "<expr_ar>"]),
+    366: ("<scalar_assign>", ["λ"]),  # Allow empty: dear x;
+    367: ("<array_assign>", ["=", "{", "<array_lit_list>", "}"]),
+    368: ("<array_assign>", ["λ"]),  # Allow empty: dear x[];
+    370: ("<top_after_id>", ["<scalar_assign>", "<multi_decl>", ";"]),
+    371: ("<decl_tail>", ["[", "<array_size>", "]", "<array_assign>", "<multi_decl>", ";"]),
+    372: ("<decl_tail>", ["<scalar_assign>", "<multi_decl>", ";"]),
+    367: ("<array_assign>", ["=", "<array_source>"]),
+    380: ("<array_source>", ["{", "<array_lit_list>", "}"]),
+381: ("<array_source>", ["id"]),
+
+# Defines SIMPLE VALUES (The "Whitelist")
+# Used to ban "1+1" inside arrays, allowing only raw data.
+450: ("<simple_val>", ["dear_lit"]),    
+451: ("<simple_val>", ["dearest_lit"]), 
+452: ("<simple_val>", ["rant_lit"]),    
+453: ("<simple_val>", ["greenflag"]),   
+454: ("<simple_val>", ["redflag"]),     
+455: ("<simple_val>", ["id"]),          
+456: ("<simple_val>", ["-", "dear_lit"]),       # Allow negative ints
+457: ("<simple_val>", ["-", "dearest_lit"]),    # Allow negative floats
 }
 
 # By nonterminal: lhs -> list of RHS (each RHS is list of symbols). Easy lookup.

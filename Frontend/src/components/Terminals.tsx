@@ -192,6 +192,7 @@ export default function Terminal({ validation = null, lexError = null, lexErrors
 
   // Check if we should show the "resolve lexical first" prompt
   const hasLexicalErrors = lexicalCount > 0;
+  const syntaxDisplayCount = syntaxCount + (hasLexicalErrors ? 1 : 0);
 
   const filteredErrors = errors.filter(error => error.type === activeTab);
 
@@ -210,7 +211,7 @@ export default function Terminal({ validation = null, lexError = null, lexErrors
             className={`tab-button ${activeTab === "syntax" ? "active" : ""}`}
             onClick={() => setActiveTab("syntax")}
           >
-            Syntax ({syntaxCount})
+            Syntax ({syntaxDisplayCount})
           </button>
           <button
             className={`tab-button ${activeTab === "semantic" ? "active" : ""}`}
@@ -221,7 +222,7 @@ export default function Terminal({ validation = null, lexError = null, lexErrors
         </div>
       </div>
       <div className="term-log" aria-live="polite">
-        {filteredErrors.length === 0 && (
+        {filteredErrors.length === 0 && !(hasLexicalErrors && activeTab === "syntax") && (
           <div className="term-log__empty">
             {hasErrors ? `No ${activeTab} errors detected.` : "No errors detected."}
           </div>

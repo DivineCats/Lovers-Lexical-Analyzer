@@ -27,7 +27,7 @@ const DEFAULT_FILE: FileTab = {
   content: DEFAULT_SOURCE,
 };
 
-const EMPTY_SOURCE_MESSAGE = "Expected program to start with love () { }.";
+const EMPTY_SOURCE_MESSAGE = "A main program is needed in order to run.";
 
 function useDebounce<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
@@ -286,7 +286,9 @@ export default function App() {
               {isRunning ? "Running..." : "▶ Run"}
             </button>
 
-            <span className={`status-light status-light--${status}`} title={TOKEN_STATUS_LABEL[status]} aria-label={TOKEN_STATUS_LABEL[status]} />
+            <span className={`status status--${status}`} title={TOKEN_STATUS_LABEL[status]}>
+              {status === "ready" ? "" : TOKEN_STATUS_LABEL[status]}
+            </span>
           </div>
         }
       />

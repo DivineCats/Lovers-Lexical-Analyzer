@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import "./Terminals.css";
 import {
   getConstructionHint,
@@ -61,6 +61,15 @@ type TabType = "lexical" | "syntax" | "semantic";
 
 export default function Terminal({ validation = null, lexError = null, lexErrors = [], backendError = null }: Props) {
   const [activeTab, setActiveTab] = useState<TabType>("lexical");
+
+  // Auto-switch to first tab that has errors: lexical first, then syntax if no lexical
+  useEffect(() => {
+    const hasLexical = lexErrors.length > 0 || (lexError != null && lexError.trim() !== "");
+    const hasSyntax = validation != null && !validation.ok;
+    if (hasLexical) setActiveTab("lexical");
+    else if (hasSyntax) setActiveTab("syntax");
+  }, [lexErrors.length, lexError, validation]);
+
   // Parse all errors into structured format
   const errors: ErrorItem[] = [];
 

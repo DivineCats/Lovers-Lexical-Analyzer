@@ -115,32 +115,24 @@ body {
   cursor: pointer;
 }
 
-/* Status label: Synced = green, others = distinct colors */
+/* Status: circle only, no text. Idle = muted, Loading = amber, Ready = green, Error = pink */
 .status {
-  font-size: 13px;
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 4px;
-}
-.status--idle {
-  color: rgba(255, 255, 255, 0.6);
-  background: transparent;
-}
-.status--loading {
-  color: #f59e0b;
-  background: rgba(245, 158, 11, 0.15);
-}
-.status--ready {
-  color: #0a0a0a;
-  background: #4ade80;
   width: 12px;
   height: 12px;
   border-radius: 50%;
   display: inline-block;
   padding: 0;
 }
+.status--idle {
+  background: rgba(255, 255, 255, 0.4);
+}
+.status--loading {
+  background: #f59e0b;
+}
+.status--ready {
+  background: #4ade80;
+}
 .status--error {
-  color: #fff;
   background: #e91e63;
 }
 

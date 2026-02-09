@@ -286,9 +286,7 @@ export default function App() {
               {isRunning ? "Running..." : "▶ Run"}
             </button>
 
-            <span className={`status status--${status}`} title={TOKEN_STATUS_LABEL[status]}>
-              {status === "ready" ? "" : TOKEN_STATUS_LABEL[status]}
-            </span>
+            <span className={`status status--${status}`} title={TOKEN_STATUS_LABEL[status]} aria-label={TOKEN_STATUS_LABEL[status]} />
           </div>
         }
       />

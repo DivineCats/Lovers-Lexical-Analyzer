@@ -201,18 +201,8 @@ class Lexer:
             )
             return None  # Signal to skip token emission
         
-        # Check if it's a keyword FIRST before validating delimiters
+        # Check if it's a keyword (exact match only); wrong case is treated as identifier
         keyword_result = self._match_keyword(lexeme)
-        if keyword_result is None:
-            # Check for case-insensitive match (wrong case)
-            lowered = lexeme.lower()
-            keyword_result = self._match_keyword(lowered)
-            if keyword_result is not None:
-                raise LexerError(
-                    f"Reserved word `{lowered}` must be written in lowercase at {self.line}:{self.column}",
-                    self._partial_tokens,
-                )
-        
         nxt = self._peek()
         
         # If it's a keyword, validate against keyword-specific delimiters

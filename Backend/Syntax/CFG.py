@@ -42,7 +42,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
 
     # Local Variable Split
     16: ("<local_decl>", ["<data_type>", "id", "<decl_tail>"]),
-    17: ("<decl_tail>", ["[", "<array_size>", "]", "<array_assign>", "<multi_decl>", ";"]), 
+    17: ("<decl_tail>", ["[", "<array_strict_logic>"]),
     18: ("<decl_tail>", ["<scalar_assign>", "<multi_decl>", ";"]), 
 
     # Multi-Declaration Support
@@ -285,6 +285,8 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     185: ("<paren_term_next>", ["/", "<factor>", "<paren_term_next>"]),
     186: ("<paren_term_next>", ["%", "<factor>", "<paren_term_next>"]),
     187: ("<paren_term_next>", ["λ"]),
+    188: ("<array_strict>", ["dear_lit", "]", "<array_assign>", "<multi_decl>", ";"]),
+    189: ("<array_strict>", ["]", "=", "<array_source>", "<multi_decl>", ";"]),
 }
 
 

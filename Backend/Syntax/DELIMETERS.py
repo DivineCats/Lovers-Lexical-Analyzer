@@ -71,7 +71,7 @@ reserved_symbol_follows = {
     "/": {" ", "\t", "\n", "alphanum", "(",},
     "%": {" ", "\t", "\n", "alphanum", "("},
     # Assignment
-    "=": {" ", "\t", "\n", '"', "alphanum", "("},
+    "=": {" ", "\t", "\n", '"', "alphanum", "(", "{"},
     "+=": {" ", "\t", "\n", "alphanum", '"', "("},
     "-=": {" ", "\t", "\n", "alphanum", '"', "("},
     "*=": {" ", "\t", "\n", "alphanum", '"', "("},

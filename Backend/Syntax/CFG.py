@@ -8,285 +8,446 @@
 from typing import Dict, List, Tuple
 
 # Production number -> (lhs, rhs). rhs is list of symbols; ["λ"] = epsilon.
-# Top-level: <top_decls_opt> (boundaries blocks, globals, sub-functions in any order), then love () { body }.
-# 136 base productions; paren-only rules 200..218 (expressions inside ( ) so ; is never valid).
+# Top-level: <top_decls_opt> then love () { body }. Declarations are STRICT TYPED:
+#   dear/dearest/rant/status each have *_tail rules that expect only the matching literal type.
 
 PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     1: ("<program>", ["<top_decls_opt>", "love", "(", ")", "{", "<body_func>", "}"]),
     2: ("<top_decls_opt>", ["<top_decl>", "<top_decls_opt>"]),
     3: ("<top_decls_opt>", ["λ"]),
     
-    # Top-Level Declarations
-    4: ("<top_decl>", ["boundaries", "id", "{", "<boundaries_decls_opt>", "}"]),
-    5: ("<top_decl>", ["<data_type>", "id", "<top_after_id>"]), 
-    
-    # CONSTANT: Strict Arithmetic Only (No boolean logic allowed)
-    6: ("<top_decl>", ["const", "<data_type>", "id", "=", "<expr_ar>", ";"]), 
-    
-    7: ("<top_decl>", ["avoidant", "id", "(", "<parameter>", ")", "{", "<body_func>", "}"]),
-    
-    # Global Variable Split (Array vs Scalar)
-    8: ("<top_after_id>", ["(", "<parameter>", ")", "{", "<body_func>", "}"]), 
-    9: ("<top_after_id>", ["[", "<array_size>", "]", "<array_assign>", "<multi_decl>", ";"]), 
-    10: ("<top_after_id>", ["<scalar_assign>", "<multi_decl>", ";"]), 
+    # ==========================================
+    # 1. TOP-LEVEL DECLARATIONS (STRICT TYPED)
+    # ==========================================
+    # After "dear id" / "dearest id" etc.: ( parameter ) { body } = function, else _tail = variable
+    4: ("<top_decl>", ["dear", "id", "<dear_after_id>"]),
+    5: ("<top_decl>", ["dearest", "id", "<dearest_after_id>"]),
+    6: ("<top_decl>", ["rant", "id", "<rant_after_id>"]),
+    7: ("<top_decl>", ["status", "id", "<status_after_id>"]),
+    8: ("<top_decl>", ["boundaries", "id", "{", "<boundaries_decls_opt>", "}"]),
+    9: ("<top_decl>", ["avoidant", "id", "(", "<parameter>", ")", "{", "<body_func>", "}"]),
 
-    11: ("<boundaries_decls_opt>", ["<top_decl>", "<boundaries_decls_opt>"]),
-    12: ("<boundaries_decls_opt>", ["λ"]),
+    # Return-type functions: type id ( parameter ) { body_func }
+    218: ("<dear_after_id>", ["(", "<parameter>", ")", "{", "<body_func>", "}"]),
+    219: ("<dear_after_id>", ["<dear_tail>"]),
+    220: ("<dearest_after_id>", ["(", "<parameter>", ")", "{", "<body_func>", "}"]),
+    221: ("<dearest_after_id>", ["<dearest_tail>"]),
+    222: ("<rant_after_id>", ["(", "<parameter>", ")", "{", "<body_func>", "}"]),
+    223: ("<rant_after_id>", ["<rant_tail>"]),
+    224: ("<status_after_id>", ["(", "<parameter>", ")", "{", "<body_func>", "}"]),
+    225: ("<status_after_id>", ["<status_tail>"]),
+    10: ("<top_decl>", ["const", "dear", "id", "=", "<dear_expr>", ";"]),
+    11: ("<top_decl>", ["const", "dearest", "id", "=", "<dearest_expr>", ";"]),
+    12: ("<top_decl>", ["const", "rant", "id", "=", "<rant_expr>", ";"]),
+    13: ("<top_decl>", ["const", "status", "id", "=", "<status_lit>", ";"]),
+
+    # A. DEAR (Integer) - Type-specific init expr: expected (, +, ++, -, --, dear_lit, id
+    14: ("<dear_tail>", ["=", "<dear_expr>", "<dear_multi>", ";"]),
+    15: ("<dear_tail>", ["<dear_multi>", ";"]),
+    16: ("<dear_tail>", ["[", "<dear_expr>", "]", "<array_assign>", "<dear_multi>", ";"]),
+    17: ("<dear_multi>", [",", "id", "<dear_init_opt>", "<dear_multi>"]),
+    18: ("<dear_multi>", ["λ"]),
+    19: ("<dear_init_opt>", ["=", "<dear_expr>"]),
+    20: ("<dear_init_opt>", ["λ"]),
+
+    # B. DEAREST (Float) - Uses <dearest_expr> (No %, bitwise). Array size = <dear_expr>
+    21: ("<dearest_tail>", ["=", "<dearest_expr>", "<dearest_multi>", ";"]),
+    22: ("<dearest_tail>", ["<dearest_multi>", ";"]),
+    23: ("<dearest_tail>", ["[", "<dear_expr>", "]", "<array_assign>", "<dearest_multi>", ";"]),
+    24: ("<dearest_multi>", [",", "id", "<dearest_init_opt>", "<dearest_multi>"]),
+    25: ("<dearest_multi>", ["λ"]),
+    26: ("<dearest_init_opt>", ["=", "<dearest_expr>"]),
+    27: ("<dearest_init_opt>", ["λ"]),
+
+   # C. RANT (String) - Uses <rant_expr> (Concat only). Array size = <dear_expr>
+    28: ("<rant_tail>", ["=", "<rant_expr>", "<rant_multi>", ";"]),
+    29: ("<rant_tail>", ["<rant_multi>", ";"]),
+    30: ("<rant_tail>", ["[", "<dear_expr>", "]", "<array_assign>", "<rant_multi>", ";"]),
+    31: ("<rant_multi>", [",", "id", "<rant_init_opt>", "<rant_multi>"]),
+    32: ("<rant_multi>", ["λ"]),
+    33: ("<rant_init_opt>", ["=", "<rant_expr>"]),
+    34: ("<rant_init_opt>", ["λ"]),
+    259: ("<rant_init_val>", ["rant_lit"]),
+    260: ("<rant_init_val>", ["id"]),
+
+    # D. STATUS (Boolean) - Uses <status_expr> (Logic + Relational). Array size = <dear_expr>
+    35: ("<status_tail>", ["=", "<status_expr>", "<status_multi>", ";"]),
+    36: ("<status_tail>", ["<status_multi>", ";"]),
+    37: ("<status_tail>", ["[", "<dear_expr>", "]", "<array_assign>", "<status_multi>", ";"]),
+    38: ("<status_multi>", [",", "id", "<status_init_opt>", "<status_multi>"]),
+    39: ("<status_multi>", ["λ"]),
+    40: ("<status_init_opt>", ["=", "<status_expr>"]),
+    41: ("<status_init_opt>", ["λ"]),
+    261: ("<status_init_expr>", ["<status_lit>"]),
+    262: ("<status_init_expr>", ["id"]),
+    263: ("<status_init_expr>", ["(", "<paren_expr>", ")"]),
+    264: ("<status_init_expr>", ["not", "<status_init_expr>"]),
+    42: ("<status_lit>", ["greenflag"]),
+    43: ("<status_lit>", ["redflag"]),
+
+    # DEAR init expr (restricted factor: dear_lit, id, (, +, -, ++, --)
+    226: ("<dear_init_expr>", ["<dear_init_term>", "<dear_init_expr_next>"]),
+    227: ("<dear_init_expr_next>", ["+", "<dear_init_term>", "<dear_init_expr_next>"]),
+    228: ("<dear_init_expr_next>", ["-", "<dear_init_term>", "<dear_init_expr_next>"]),
+    229: ("<dear_init_expr_next>", ["λ"]),
+    230: ("<dear_init_term>", ["<dear_init_factor>", "<dear_init_term_next>"]),
+    231: ("<dear_init_term_next>", ["*", "<dear_init_factor>", "<dear_init_term_next>"]),
+    232: ("<dear_init_term_next>", ["/", "<dear_init_factor>", "<dear_init_term_next>"]),
+    233: ("<dear_init_term_next>", ["%", "<dear_init_factor>", "<dear_init_term_next>"]),
+    234: ("<dear_init_term_next>", ["λ"]),
+    235: ("<dear_init_factor>", ["(", "<paren_expr>", ")"]),
+    236: ("<dear_init_factor>", ["id", "<factor_tail>"]),
+    237: ("<dear_init_factor>", ["dear_lit"]),
+    238: ("<dear_init_factor>", ["-", "<dear_init_factor>"]),
+    239: ("<dear_init_factor>", ["+", "<dear_init_factor>"]),
+    240: ("<dear_init_factor>", ["++", "id"]),
+    241: ("<dear_init_factor>", ["--", "id"]),
+
+    # DEAREST init expr (restricted factor: dearest_lit, dear_lit, id, (, +, -, ++, --)
+    242: ("<dearest_init_expr>", ["<dearest_init_term>", "<dearest_init_expr_next>"]),
+    243: ("<dearest_init_expr_next>", ["+", "<dearest_init_term>", "<dearest_init_expr_next>"]),
+    244: ("<dearest_init_expr_next>", ["-", "<dearest_init_term>", "<dearest_init_expr_next>"]),
+    245: ("<dearest_init_expr_next>", ["λ"]),
+    246: ("<dearest_init_term>", ["<dearest_init_factor>", "<dearest_init_term_next>"]),
+    247: ("<dearest_init_term_next>", ["*", "<dearest_init_factor>", "<dearest_init_term_next>"]),
+    248: ("<dearest_init_term_next>", ["/", "<dearest_init_factor>", "<dearest_init_term_next>"]),
+    249: ("<dearest_init_term_next>", ["%", "<dearest_init_factor>", "<dearest_init_term_next>"]),
+    250: ("<dearest_init_term_next>", ["λ"]),
+    251: ("<dearest_init_factor>", ["(", "<paren_expr>", ")"]),
+    252: ("<dearest_init_factor>", ["id", "<factor_tail>"]),
+    253: ("<dearest_init_factor>", ["dearest_lit"]),
+    254: ("<dearest_init_factor>", ["dear_lit"]),
+    255: ("<dearest_init_factor>", ["-", "<dearest_init_factor>"]),
+    256: ("<dearest_init_factor>", ["+", "<dearest_init_factor>"]),
+    257: ("<dearest_init_factor>", ["++", "id"]),
+    258: ("<dearest_init_factor>", ["--", "id"]),
+
+    44: ("<boundaries_decls_opt>", ["<top_decl>", "<boundaries_decls_opt>"]),
+    45: ("<boundaries_decls_opt>", ["λ"]),
 
     # ==========================================
-    # 2. FUNCTIONS & LOCAL DECLARATIONS
+    # 2. FUNCTIONS & LOCAL DECLARATIONS (STRICT TYPED)
     # ==========================================
-    13: ("<body_func>", ["<local_decl_list>", "<statements>"]),
-    14: ("<local_decl_list>", ["<local_decl>", "<local_decl_list>"]),
-    15: ("<local_decl_list>", ["λ"]),
-
-    # Local Variable Split
-    16: ("<local_decl>", ["<data_type>", "id", "<decl_tail>"]),
-    17: ("<decl_tail>", ["[", "<array_strict_logic>"]),
-    18: ("<decl_tail>", ["<scalar_assign>", "<multi_decl>", ";"]), 
-
-    # Multi-Declaration Support
-    19: ("<multi_decl>", [",", "id", "<array_decl>", "<var_initial>", "<multi_decl>"]),
-    20: ("<multi_decl>", ["λ"]),
+    46: ("<body_func>", ["<local_decl_list>", "<statements>"]),
+    47: ("<local_decl_list>", ["<local_decl>", "<local_decl_list>"]),
+    48: ("<local_decl_list>", ["λ"]),
+    49: ("<local_decl>", ["dear", "id", "<dear_tail>"]),
+    50: ("<local_decl>", ["dearest", "id", "<dearest_tail>"]),
+    51: ("<local_decl>", ["rant", "id", "<rant_tail>"]),
+    52: ("<local_decl>", ["status", "id", "<status_tail>"]),
 
     # ==========================================
     # 3. ASSIGNMENT LOGIC
     # ==========================================
-    # SCALAR: Strict Arithmetic Only (No boolean logic allowed)
-    21: ("<scalar_assign>", ["=", "<expr_ar>"]),
-    22: ("<scalar_assign>", ["λ"]),
+    # SCALAR: Used in statements (id = expr ;)
+    53: ("<scalar_assign>", ["=", "<expr_ar>"]),
+    54: ("<scalar_assign>", ["λ"]),
 
     # ARRAY: Strict Source (List or ID)
-    23: ("<array_assign>", ["=", "<array_source>"]),
-    24: ("<array_assign>", ["λ"]),
-    25: ("<array_source>", ["{", "<array_lit_list>", "}"]),
-    26: ("<array_source>", ["id"]),
+    55: ("<array_assign>", ["=", "<array_source>"]),
+    56: ("<array_assign>", ["λ"]),
+    57: ("<array_source>", ["{", "<array_lit_list>", "}"]),
+    58: ("<array_source>", ["id"]),
 
     # ==========================================
     # 4. INITIALIZATION & VALUES
     # ==========================================
-    # INIT: Strict Arithmetic Only
-    27: ("<var_initial>", ["=", "<expr_ar>"]),       
-    28: ("<var_initial>", ["=", "<init_value>"]), 
-    29: ("<var_initial>", ["λ"]),
+    59: ("<var_initial>", ["=", "<expr_ar>"]),
+    60: ("<var_initial>", ["=", "<init_value>"]),
+    61: ("<var_initial>", ["λ"]),
 
     # ARRAY LIST: Strict Simple Values Only (No Math inside {})
-    30: ("<init_value>", ["<simple_val>"]),
-    31: ("<init_value>", ["{", "<array_lit_list>", "}"]),
-    32: ("<array_lit_list>", ["<init_value>", "<more_array_lit>"]),
-    33: ("<more_array_lit>", [",", "<init_value>", "<more_array_lit>"]),
-    34: ("<more_array_lit>", ["λ"]),
+    62: ("<init_value>", ["<simple_val>"]),
+    63: ("<init_value>", ["{", "<array_lit_list>", "}"]),
+    64: ("<array_lit_list>", ["<init_value>", "<more_array_lit>"]),
+    65: ("<more_array_lit>", [",", "<init_value>", "<more_array_lit>"]),
+    66: ("<more_array_lit>", ["λ"]),
 
-    # Simple Values Whitelist
-    35: ("<simple_val>", ["dear_lit"]),
-    36: ("<simple_val>", ["dearest_lit"]),
-    37: ("<simple_val>", ["rant_lit"]),
-    38: ("<simple_val>", ["greenflag"]),
-    39: ("<simple_val>", ["redflag"]),
-    40: ("<simple_val>", ["id"]),
-    41: ("<simple_val>", ["-", "dear_lit"]),
-    42: ("<simple_val>", ["-", "dearest_lit"]),
-    443: ("<simple_val>", ["λ"]),
+    # Simple Values Whitelist (for array literals etc.)
+    67: ("<simple_val>", ["dear_lit"]),
+    68: ("<simple_val>", ["dearest_lit"]),
+    69: ("<simple_val>", ["rant_lit"]),
+    70: ("<simple_val>", ["greenflag"]),
+    71: ("<simple_val>", ["redflag"]),
+    72: ("<simple_val>", ["id"]),
+    73: ("<simple_val>", ["-", "dear_lit"]),
+    74: ("<simple_val>", ["-", "dearest_lit"]),
+    75: ("<simple_val>", ["λ"]),
 
     # ==========================================
     # 5. DATA TYPES & PARAMETERS
     # ==========================================
-    43: ("<data_type>", ["dear"]),
-    44: ("<data_type>", ["dearest"]),
-    45: ("<data_type>", ["rant"]),
-    46: ("<data_type>", ["status"]),
+    76: ("<data_type>", ["dear"]),
+    77: ("<data_type>", ["dearest"]),
+    78: ("<data_type>", ["rant"]),
+    79: ("<data_type>", ["status"]),
 
-    47: ("<parameter>", ["<function_parameter>", "<multi_parameter>"]),
-    48: ("<parameter>", ["λ"]),
-    49: ("<function_parameter>", ["<data_type>", "id", "<param_array_decl>"]),
-    50: ("<multi_parameter>", [",", "<function_parameter>", "<multi_parameter>"]),
-    51: ("<multi_parameter>", ["λ"]),
-    52: ("<param_array_decl>", ["[", "]", "<param_array_decl>"]),
-    53: ("<param_array_decl>", ["λ"]),
-    54: ("<array_decl>", ["[", "<array_size>", "]", "<array_decl>"]),
-    55: ("<array_decl>", ["λ"]),
-    56: ("<array_size>", ["dear_lit"]),
-    57: ("<array_size>", ["λ"]),
+    80: ("<parameter>", ["<function_parameter>", "<multi_parameter>"]),
+    81: ("<parameter>", ["λ"]),
+    82: ("<function_parameter>", ["<data_type>", "id", "<param_array_decl>"]),
+    83: ("<multi_parameter>", [",", "<function_parameter>", "<multi_parameter>"]),
+    84: ("<multi_parameter>", ["λ"]),
+    85: ("<param_array_decl>", ["[", "]", "<param_array_decl>"]),
+    86: ("<param_array_decl>", ["λ"]),
+    87: ("<array_decl>", ["[", "<array_size>", "]", "<array_decl>"]),
+    88: ("<array_decl>", ["λ"]),
+    89: ("<array_size>", ["dear_lit"]),
+    90: ("<array_size>", ["λ"]),
 
     # ==========================================
     # 6. STATEMENTS
     # ==========================================
-    58: ("<statements>", ["id", "<id_suffix>", "<statements>"]),
-    59: ("<statements>", ["<input_state>", "<statements>"]),
-    60: ("<statements>", ["<output_state>", "<statements>"]),
-    61: ("<statements>", ["<conditional_state>", "<statements>"]),
-    62: ("<statements>", ["<loop_state>", "<statements>"]),
-    63: ("<statements>", ["<comeback_state>", "<statements>"]),
-    64: ("<statements>", ["<choose_state>", "<statements>"]),
-    65: ("<statements>", ["<unary_state>", "<statements>"]),
-    66: ("<statements>", ["<break_state>", "<statements>"]),
-    67: ("<statements>", ["λ"]),
+    91: ("<statements>", ["id", "<id_suffix>", "<statements>"]),
+    92: ("<statements>", ["<input_state>", "<statements>"]),
+    93: ("<statements>", ["<output_state>", "<statements>"]),
+    94: ("<statements>", ["<conditional_state>", "<statements>"]),
+    95: ("<statements>", ["<loop_state>", "<statements>"]),
+    96: ("<statements>", ["<comeback_state>", "<statements>"]),
+    97: ("<statements>", ["<choose_state>", "<statements>"]),
+    98: ("<statements>", ["<unary_state>", "<statements>"]),
+    99: ("<statements>", ["<break_state>", "<statements>"]),
+    100: ("<statements>", ["λ"]),
 
     # ==========================================
     # 7. ID SUFFIXES & UNARY
     # ==========================================
-    68: ("<id_suffix>", ["[", "<expr>", "]", "<id_suffix>"]),  
-    69: ("<id_suffix>", ["<assign_ops>", "<assign_values>", ";"]), 
-    70: ("<id_suffix>", ["(", "<arguments>", ")", ";"]), 
-    71: ("<id_suffix>", ["<unary_ops>", ";"]), 
-    72: ("<id_suffix>", ["::", "id", "<id_suffix>"]), 
+    101: ("<id_suffix>", ["[", "<expr>", "]", "<id_suffix>"]),
+    102: ("<id_suffix>", ["<assign_ops>", "<assign_values>", ";"]),
+    103: ("<id_suffix>", ["(", "<arguments>", ")", ";"]),
+    104: ("<id_suffix>", ["<unary_ops>", ";"]),
+    105: ("<id_suffix>", ["::", "id", "<id_suffix>"]),
 
-    73: ("<unary_state>", ["<unary_ops>", "id", ";"]),
-    74: ("<unary_ops>", ["++"]),
-    75: ("<unary_ops>", ["--"]),
+    106: ("<unary_state>", ["<unary_ops>", "id", ";"]),
+    107: ("<unary_ops>", ["++"]),
+    108: ("<unary_ops>", ["--"]),
 
-    76: ("<assign_ops>", ["="]),
-    77: ("<assign_ops>", ["+="]),
-    78: ("<assign_ops>", ["-="]),
-    79: ("<assign_ops>", ["*="]),
-    80: ("<assign_ops>", ["/="]),
-    81: ("<assign_ops>", ["%="]),
-    
+    109: ("<assign_ops>", ["="]),
+    110: ("<assign_ops>", ["+="]),
+    111: ("<assign_ops>", ["-="]),
+    112: ("<assign_ops>", ["*="]),
+    113: ("<assign_ops>", ["/="]),
+    114: ("<assign_ops>", ["%="]),
+
     # ASSIGNMENT: Strict Arithmetic Only (Prevents x = y == z)
-    82: ("<assign_values>", ["<expr_ar>"]),
-
-    83: ("<arguments>", ["<paren_expr>", "<more_arguments>"]),
-    84: ("<arguments>", ["λ"]),
-    85: ("<more_arguments>", [",", "<paren_expr>", "<more_arguments>"]),
-    86: ("<more_arguments>", ["λ"]),
+    115: ("<assign_values>", ["<assign_rhs_expr>"]),
+    116: ("<arguments>", ["<paren_expr>", "<more_arguments>"]),
+    117: ("<arguments>", ["λ"]),
+    118: ("<more_arguments>", [",", "<paren_expr>", "<more_arguments>"]),
+    119: ("<more_arguments>", ["λ"]),
 
     # ==========================================
     # 8. I/O & CONTROL FLOW
     # ==========================================
-    87: ("<input_state>", ["give", ">>", "id", "<input_tail>", "<more_input_ids>", ";"]),
-    88: ("<input_state>", ["overshare", "(", "id", ")", ";"]),
-    89: ("<input_tail>", ["[", "<expr>", "]", "<input_tail>"]),
-    90: ("<input_tail>", ["λ"]),
-    91: ("<more_input_ids>", [">>", "id", "<input_tail>", "<more_input_ids>"]),
-    92: ("<more_input_ids>", ["λ"]),
+    120: ("<input_state>", ["give", ">>", "id", "<input_tail>", "<more_input_ids>", ";"]),
+    121: ("<input_state>", ["overshare", "(", "id", ")", ";"]),
+    122: ("<input_tail>", ["[", "<expr>", "]", "<input_tail>"]),
+    123: ("<input_tail>", ["λ"]),
+    124: ("<more_input_ids>", [">>", "id", "<input_tail>", "<more_input_ids>"]),
+    125: ("<more_input_ids>", ["λ"]),
 
-    93: ("<output_state>", ["express", "<<", "<output_values>", "<more_output_tail>", ";"]),
-    94: ("<more_output_tail>", ["<<", "<output_values>", "<more_output_tail>"]),
-    95: ("<more_output_tail>", ["λ"]),
-    96: ("<output_values>", ["<expr>"]),
-    97: ("<output_values>", ["periodt"]),
+    126: ("<output_state>", ["express", "<<", "<output_values>", "<more_output_tail>", ";"]),
+    127: ("<more_output_tail>", ["<<", "<output_values>", "<more_output_tail>"]),
+    128: ("<more_output_tail>", ["λ"]),
+    129: ("<output_values>", ["<expr>"]),
+    130: ("<output_values>", ["periodt"]),
 
-    98: ("<comeback_state>", ["comeback", "<expr_opt>", ";"]),
-    99: ("<break_state>", ["breakup", ";"]),
+    131: ("<comeback_state>", ["comeback", "<expr_opt>", ";"]),
+    132: ("<break_state>", ["breakup", ";"]),
 
     # ==========================================
     # 9. LOOPS & CONDITIONS
     # ==========================================
-    100: ("<conditional_state>", ["forever", "(", "<expr>", ")", "{", "<body_func>", "}", "<forevermore_lst>", "<more_opt>"]),
-    101: ("<forevermore_lst>", ["forevermore", "(", "<expr>", ")", "{", "<body_func>", "}", "<forevermore_lst>"]),
-    102: ("<forevermore_lst>", ["λ"]),
-    103: ("<more_opt>", ["more", "{", "<body_func>", "}"]),
-    104: ("<more_opt>", ["λ"]),
+    133: ("<conditional_state>", ["forever", "(", "<expr>", ")", "{", "<body_func>", "}", "<forevermore_lst>", "<more_opt>"]),
+    134: ("<forevermore_lst>", ["forevermore", "(", "<expr>", ")", "{", "<body_func>", "}", "<forevermore_lst>"]),
+    135: ("<forevermore_lst>", ["λ"]),
+    136: ("<more_opt>", ["more", "{", "<body_func>", "}"]),
+    137: ("<more_opt>", ["λ"]),
 
-    105: ("<loop_state>", ["<pursue_stmt>"]),
-    106: ("<loop_state>", ["<while_stmt>"]),
-    107: ("<loop_state>", ["<for_stmt>"]),
+    138: ("<loop_state>", ["<pursue_stmt>"]),
+    139: ("<loop_state>", ["<while_stmt>"]),
+    140: ("<loop_state>", ["<for_stmt>"]),
 
-    108: ("<pursue_stmt>", ["pursue", "(", "<expr>", ")", "{", "<body_func>", "}"]),
-    109: ("<while_stmt>", ["while", "(", "<expr>", ")", "{", "<body_func>", "}"]),
-    110: ("<for_stmt>", ["for", "(", "<for_init>", ";", "<expr>", ";", "<for_ud>", ")", "{", "<body_func>", "}"]),
-    
-    # FOR INIT: Strict Arithmetic Only
-    111: ("<for_init>", ["<data_type>", "id", "=", "<expr_ar>"]),
-    112: ("<for_init>", ["id", "=", "<expr_ar>"]),
-    
-    113: ("<for_ud>", ["id", "<assign_ops>", "<expr>"]),
-    114: ("<for_ud>", ["id", "<unary_ops>"]),
-    115: ("<for_ud>", ["<unary_ops>", "id"]),
+    141: ("<pursue_stmt>", ["pursue", "(", "<expr>", ")", "{", "<body_func>", "}"]),
+    142: ("<while_stmt>", ["while", "(", "<expr>", ")", "{", "<body_func>", "}"]),
+    143: ("<for_stmt>", ["for", "(", "<for_init>", ";", "<expr>", ";", "<for_ud>", ")", "{", "<body_func>", "}"]),
 
-    116: ("<choose_state>", ["choose", "(", "<expr>", ")", "{", "<phase_lst>", "<bareminimum_opt>", "}"]),
-    117: ("<phase_lst>", ["phase", "<choose_const>", ":", "<body_func>", "breakup", ";", "<phase_lst_next>"]),
-    118: ("<phase_lst_next>", ["<phase_lst>"]),
-    119: ("<phase_lst_next>", ["λ"]),
-    120: ("<choose_const>", ["dear_lit"]),
-    121: ("<choose_const>", ["rant_lit"]),
-    122: ("<bareminimum_opt>", ["bareminimum", ":", "<body_func>", "breakup", ";"]),
-    123: ("<bareminimum_opt>", ["λ"]),
+    144: ("<for_init>", ["<data_type>", "id", "=", "<expr_ar>"]),
+    145: ("<for_init>", ["id", "=", "<expr_ar>"]),
+
+    146: ("<for_ud>", ["id", "<assign_ops>", "<expr>"]),
+    147: ("<for_ud>", ["id", "<unary_ops>"]),
+    148: ("<for_ud>", ["<unary_ops>", "id"]),
+
+    149: ("<choose_state>", ["choose", "(", "<expr>", ")", "{", "<phase_lst>", "<bareminimum_opt>", "}"]),
+    150: ("<phase_lst>", ["phase", "<choose_const>", ":", "<body_func>", "breakup", ";", "<phase_lst_next>"]),
+    151: ("<phase_lst_next>", ["<phase_lst>"]),
+    152: ("<phase_lst_next>", ["λ"]),
+    153: ("<choose_const>", ["dear_lit"]),
+    154: ("<bareminimum_opt>", ["bareminimum", ":", "<body_func>", "breakup", ";"]),
+    155: ("<bareminimum_opt>", ["λ"]),
 
     # ==========================================
     # 10. EXPRESSIONS (MAIN HIERARCHY)
     # ==========================================
-    124: ("<expr>", ["<log_expr>"]),
-    125: ("<expr_opt>", ["<expr>"]),
-    126: ("<expr_opt>", ["λ"]),
+    156: ("<expr>", ["<log_expr>"]),
+    157: ("<expr_opt>", ["<expr>"]),
+    158: ("<expr_opt>", ["λ"]),
 
-    127: ("<log_expr>", ["<and_expr>", "<log_next>"]),
-    128: ("<log_next>", ["||", "<and_expr>", "<log_next>"]),
-    129: ("<log_next>", ["λ"]),
+    159: ("<log_expr>", ["<and_expr>", "<log_next>"]),
+    160: ("<log_next>", ["||", "<and_expr>", "<log_next>"]),
+    161: ("<log_next>", ["λ"]),
 
-    130: ("<and_expr>", ["<rel_expr>", "<and_next>"]),
-    131: ("<and_next>", ["&&", "<rel_expr>", "<and_next>"]),
-    132: ("<and_next>", ["λ"]),
+    162: ("<and_expr>", ["<rel_expr>", "<and_next>"]),
+    163: ("<and_next>", ["&&", "<rel_expr>", "<and_next>"]),
+    164: ("<and_next>", ["λ"]),
 
-    133: ("<rel_expr>", ["<expr_ar>", "<rel_next>"]),
-    134: ("<rel_next>", ["<rel_op>", "<expr_ar>", "<rel_next>"]),
-    135: ("<rel_next>", ["λ"]),
-    136: ("<rel_op>", ["=="]),
-    137: ("<rel_op>", ["!="]),
-    138: ("<rel_op>", ["<"]),
-    139: ("<rel_op>", ["<="]),
-    140: ("<rel_op>", [">"]),
-    141: ("<rel_op>", [">="]),
+    165: ("<rel_expr>", ["<expr_ar>", "<rel_next>"]),
+    166: ("<rel_next>", ["<rel_op>", "<expr_ar>", "<rel_next>"]),
+    167: ("<rel_next>", ["λ"]),
+    168: ("<rel_op>", ["=="]),
+    169: ("<rel_op>", ["!="]),
+    170: ("<rel_op>", ["<"]),
+    171: ("<rel_op>", ["<="]),
+    172: ("<rel_op>", [">"]),
+    173: ("<rel_op>", [">="]),
 
-    142: ("<expr_ar>", ["<term>", "<expr_next>"]),
-    143: ("<expr_next>", ["+", "<term>", "<expr_next>"]),
-    144: ("<expr_next>", ["-", "<term>", "<expr_next>"]),
-    145: ("<expr_next>", ["λ"]),
+    174: ("<expr_ar>", ["<term>", "<expr_next>"]),
+    175: ("<expr_next>", ["+", "<term>", "<expr_next>"]),
+    176: ("<expr_next>", ["-", "<term>", "<expr_next>"]),
+    177: ("<expr_next>", ["λ"]),
 
-    146: ("<term>", ["<factor>", "<term_next>"]),
-    147: ("<term_next>", ["*", "<factor>", "<term_next>"]),
-    148: ("<term_next>", ["/", "<factor>", "<term_next>"]),
-    149: ("<term_next>", ["%", "<factor>", "<term_next>"]),
-    150: ("<term_next>", ["λ"]),
+    178: ("<term>", ["<factor>", "<term_next>"]),
+    179: ("<term_next>", ["*", "<factor>", "<term_next>"]),
+    180: ("<term_next>", ["/", "<factor>", "<term_next>"]),
+    181: ("<term_next>", ["%", "<factor>", "<term_next>"]),
+    182: ("<term_next>", ["λ"]),
 
     # ==========================================
     # 11. FACTORS & TAILS
     # ==========================================
-    151: ("<factor>", ["(", "<paren_expr>", ")"]),
-    152: ("<factor>", ["id", "<factor_tail>"]),
-    153: ("<factor>", ["dear_lit"]),
-    154: ("<factor>", ["dearest_lit"]),
-    155: ("<factor>", ["rant_lit"]),
-    156: ("<factor>", ["<status_lit>"]),
-    157: ("<factor>", ["-", "<factor>"]),
-    158: ("<factor>", ["+", "<factor>"]),
-    159: ("<factor>", ["++", "id"]),
-    160: ("<factor>", ["--", "id"]),
+    183: ("<factor>", ["(", "<paren_expr>", ")"]),
+    184: ("<factor>", ["id", "<factor_tail>"]),
+    185: ("<factor>", ["dear_lit"]),
+    186: ("<factor>", ["dearest_lit"]),
+    187: ("<factor>", ["rant_lit"]),
+    188: ("<factor>", ["<status_lit>"]),
+    189: ("<factor>", ["-", "<factor>"]),
+    190: ("<factor>", ["+", "<factor>"]),
+    191: ("<factor>", ["++", "id"]),
+    192: ("<factor>", ["--", "id"]),
 
-    161: ("<status_lit>", ["greenflag"]),
-    162: ("<status_lit>", ["redflag"]),
-
-    163: ("<factor_tail>", ["[", "<expr>", "]", "<factor_tail>"]),
-    164: ("<factor_tail>", ["(", "<arguments>", ")"]),
-    165: ("<factor_tail>", ["++"]),
-    166: ("<factor_tail>", ["--"]),
-    167: ("<factor_tail>", ["::", "id", "<factor_tail>"]),
-    168: ("<factor_tail>", ["λ"]),
+    193: ("<factor_tail>", ["[", "<expr>", "]", "<factor_tail>"]),
+    194: ("<factor_tail>", ["(", "<arguments>", ")"]),
+    195: ("<factor_tail>", ["++"]),
+    196: ("<factor_tail>", ["--"]),
+    197: ("<factor_tail>", ["::", "id", "<factor_tail>"]),
+    198: ("<factor_tail>", ["λ"]),
 
     # ==========================================
     # 12. PARENTHESIS-ONLY HIERARCHY
     # ==========================================
-    169: ("<paren_expr>", ["<paren_log_expr>"]),
-    170: ("<paren_log_expr>", ["<paren_and_expr>", "<paren_log_next>"]),
-    171: ("<paren_log_next>", ["||", "<paren_and_expr>", "<paren_log_next>"]),
-    172: ("<paren_log_next>", ["λ"]),
-    173: ("<paren_and_expr>", ["<paren_rel_expr>", "<paren_and_next>"]),
-    174: ("<paren_and_next>", ["&&", "<paren_rel_expr>", "<paren_and_next>"]),
-    175: ("<paren_and_next>", ["λ"]),
-    176: ("<paren_rel_expr>", ["<paren_expr_ar>", "<paren_rel_next>"]),
-    177: ("<paren_rel_next>", ["<rel_op>", "<paren_expr_ar>", "<paren_rel_next>"]),
-    178: ("<paren_rel_next>", ["λ"]),
-    179: ("<paren_expr_ar>", ["<paren_term>", "<paren_expr_next>"]),
-    180: ("<paren_expr_next>", ["+", "<paren_term>", "<paren_expr_next>"]),
-    181: ("<paren_expr_next>", ["-", "<paren_term>", "<paren_expr_next>"]),
-    182: ("<paren_expr_next>", ["λ"]),
-    183: ("<paren_term>", ["<factor>", "<paren_term_next>"]),
-    184: ("<paren_term_next>", ["*", "<factor>", "<paren_term_next>"]),
-    185: ("<paren_term_next>", ["/", "<factor>", "<paren_term_next>"]),
-    186: ("<paren_term_next>", ["%", "<factor>", "<paren_term_next>"]),
-    187: ("<paren_term_next>", ["λ"]),
-    188: ("<array_strict>", ["dear_lit", "]", "<array_assign>", "<multi_decl>", ";"]),
-    189: ("<array_strict>", ["]", "=", "<array_source>", "<multi_decl>", ";"]),
+    199: ("<paren_expr>", ["<paren_log_expr>"]),
+    200: ("<paren_log_expr>", ["<paren_and_expr>", "<paren_log_next>"]),
+    201: ("<paren_log_next>", ["||", "<paren_and_expr>", "<paren_log_next>"]),
+    202: ("<paren_log_next>", ["λ"]),
+    203: ("<paren_and_expr>", ["<paren_rel_expr>", "<paren_and_next>"]),
+    204: ("<paren_and_next>", ["&&", "<paren_rel_expr>", "<paren_and_next>"]),
+    205: ("<paren_and_next>", ["λ"]),
+    206: ("<paren_rel_expr>", ["<paren_expr_ar>", "<paren_rel_next>"]),
+    207: ("<paren_rel_next>", ["<rel_op>", "<paren_expr_ar>", "<paren_rel_next>"]),
+    208: ("<paren_rel_next>", ["λ"]),
+    209: ("<paren_expr_ar>", ["<paren_term>", "<paren_expr_next>"]),
+    210: ("<paren_expr_next>", ["+", "<paren_term>", "<paren_expr_next>"]),
+    211: ("<paren_expr_next>", ["-", "<paren_term>", "<paren_expr_next>"]),
+    212: ("<paren_expr_next>", ["λ"]),
+    213: ("<paren_term>", ["<factor>", "<paren_term_next>"]),
+    214: ("<paren_term_next>", ["*", "<factor>", "<paren_term_next>"]),
+    215: ("<paren_term_next>", ["/", "<factor>", "<paren_term_next>"]),
+    216: ("<paren_term_next>", ["%", "<factor>", "<paren_term_next>"]),
+    217: ("<paren_term_next>", ["λ"]),
+
+    # Assignment RHS: comparison and logical allowed; == and != prohibited (prevents x = y == z)
+    265: ("<assign_rhs_expr>", ["<assign_rhs_log_expr>"]),
+    266: ("<assign_rhs_log_expr>", ["<assign_rhs_and_expr>", "<assign_rhs_log_next>"]),
+    267: ("<assign_rhs_log_next>", ["||", "<assign_rhs_and_expr>", "<assign_rhs_log_next>"]),
+    268: ("<assign_rhs_log_next>", ["λ"]),
+    269: ("<assign_rhs_and_expr>", ["<assign_rhs_rel_expr>", "<assign_rhs_and_next>"]),
+    270: ("<assign_rhs_and_next>", ["&&", "<assign_rhs_rel_expr>", "<assign_rhs_and_next>"]),
+    271: ("<assign_rhs_and_next>", ["λ"]),
+    272: ("<assign_rhs_rel_expr>", ["<expr_ar>", "<assign_rhs_rel_next>"]),
+    273: ("<assign_rhs_rel_next>", ["<assign_rhs_rel_op>", "<expr_ar>", "<assign_rhs_rel_next>"]),
+    274: ("<assign_rhs_rel_next>", ["λ"]),
+    275: ("<assign_rhs_rel_op>", ["<"]),
+    276: ("<assign_rhs_rel_op>", ["<="]),
+    277: ("<assign_rhs_rel_op>", [">"]),
+    278: ("<assign_rhs_rel_op>", [">="]),
+    # ==========================================
+    # TAILORED EXPRESSIONS (C++ MIMIC)
+    # ==========================================
+    # A. INTEGER (dear) - Math + Bitwise
+    279: ("<dear_expr>", ["<dear_term>", "<dear_next>"]),
+    280: ("<dear_next>", ["+", "<dear_term>", "<dear_next>"]),
+    281: ("<dear_next>", ["-", "<dear_term>", "<dear_next>"]),
+    282: ("<dear_next>", ["<<", "<dear_term>", "<dear_next>"]),
+    283: ("<dear_next>", [">>", "<dear_term>", "<dear_next>"]),
+    284: ("<dear_next>", ["^", "<dear_term>", "<dear_next>"]),
+    285: ("<dear_next>", ["|", "<dear_term>", "<dear_next>"]),
+    286: ("<dear_next>", ["&", "<dear_term>", "<dear_next>"]),
+    287: ("<dear_next>", ["λ"]),
+    288: ("<dear_term>", ["<dear_factor>", "<dear_term_next>"]),
+    289: ("<dear_term_next>", ["*", "<dear_factor>", "<dear_term_next>"]),
+    290: ("<dear_term_next>", ["/", "<dear_factor>", "<dear_term_next>"]),
+    291: ("<dear_term_next>", ["%", "<dear_factor>", "<dear_term_next>"]),
+    292: ("<dear_term_next>", ["λ"]),
+    293: ("<dear_factor>", ["(", "<dear_expr>", ")"]),
+    294: ("<dear_factor>", ["dear_lit"]),
+    295: ("<dear_factor>", ["id"]),
+    296: ("<dear_factor>", ["-", "<dear_factor>"]),
+    297: ("<dear_factor>", ["+", "<dear_factor>"]),
+    298: ("<dear_factor>", ["~", "<dear_factor>"]),
+
+    # B. FLOAT (dearest) - Math only, no % or bitwise
+    299: ("<dearest_expr>", ["<dearest_term>", "<dearest_next>"]),
+    300: ("<dearest_next>", ["+", "<dearest_term>", "<dearest_next>"]),
+    301: ("<dearest_next>", ["-", "<dearest_term>", "<dearest_next>"]),
+    302: ("<dearest_next>", ["λ"]),
+    303: ("<dearest_term>", ["<dearest_factor>", "<dearest_term_next>"]),
+    304: ("<dearest_term_next>", ["*", "<dearest_factor>", "<dearest_term_next>"]),
+    305: ("<dearest_term_next>", ["/", "<dearest_factor>", "<dearest_term_next>"]),
+    306: ("<dearest_term_next>", ["λ"]),
+    307: ("<dearest_factor>", ["(", "<dearest_expr>", ")"]),
+    308: ("<dearest_factor>", ["dearest_lit"]),
+    309: ("<dearest_factor>", ["id"]),
+    310: ("<dearest_factor>", ["-", "<dearest_factor>"]),
+
+    # C. STRING (rant) - Concat only
+    311: ("<rant_expr>", ["<rant_term>", "<rant_next>"]),
+    312: ("<rant_next>", ["+", "<rant_term>", "<rant_next>"]),
+    313: ("<rant_next>", ["λ"]),
+    314: ("<rant_term>", ["<rant_factor>"]),
+    315: ("<rant_factor>", ["(", "<rant_expr>", ")"]),
+    316: ("<rant_factor>", ["rant_lit"]),
+    317: ("<rant_factor>", ["id"]),
+
+    # D. BOOLEAN (status) - Logic + Relational; uses status_int_compare (dear_expr comparisons)
+    318: ("<status_expr>", ["<status_and>", "<status_or_next>"]),
+    319: ("<status_or_next>", ["||", "<status_and>", "<status_or_next>"]),
+    320: ("<status_or_next>", ["λ"]),
+    321: ("<status_and>", ["<status_factor>", "<status_and_next>"]),
+    322: ("<status_and_next>", ["&&", "<status_factor>", "<status_and_next>"]),
+    323: ("<status_and_next>", ["λ"]),
+    324: ("<status_factor>", ["(", "<status_expr>", ")"]),
+    325: ("<status_factor>", ["not", "<status_factor>"]),
+    326: ("<status_factor>", ["<status_lit>"]),
+    327: ("<status_factor>", ["id"]),
+    328: ("<status_factor>", ["<status_int_compare>"]),
+
+    # E. Integer comparison (used inside status_factor for x > y etc.)
+    329: ("<status_int_compare>", ["<dear_expr>", "<status_int_compare_next>"]),
+    330: ("<status_int_compare_next>", ["<rel_op>", "<dear_expr>"]),
+    331: ("<status_int_compare_next>", ["λ"]),
+
+    # Assignment RHS: comparison and logical allowed; == and != prohibited (prevents x = y == z)
 }
 
 

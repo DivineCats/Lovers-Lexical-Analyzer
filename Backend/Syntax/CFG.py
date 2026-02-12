@@ -20,8 +20,12 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     # 1. TOP-LEVEL DECLARATIONS (STRICT TYPED)
     # ==========================================
     # After "dear id" / "dearest id" etc.: ( parameter ) { body } = function, else _tail = variable
+    # dearest allows id or dear_lit as name (e.g. dearest value = 80 + 2;)
+    389: ("<dearest_name>", ["id"]),
+    390: ("<dearest_name>", ["dear_lit"]),
+    391: ("<dearest_name>", ["dearest_lit"]),
     4: ("<top_decl>", ["dear", "id", "<dear_after_id>"]),
-    5: ("<top_decl>", ["dearest", "id", "<dearest_after_id>"]),
+    5: ("<top_decl>", ["dearest", "<dearest_name>", "<dearest_after_id>"]),
     6: ("<top_decl>", ["rant", "id", "<rant_after_id>"]),
     7: ("<top_decl>", ["status", "id", "<status_after_id>"]),
     8: ("<top_decl>", ["boundaries", "id", "{", "<boundaries_decls_opt>", "}"]),
@@ -37,15 +41,16 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     224: ("<status_after_id>", ["(", "<parameter>", ")", "{", "<body_func>", "}"]),
     225: ("<status_after_id>", ["<status_tail>"]),
     10: ("<top_decl>", ["const", "dear", "id", "=", "<dear_expr>", ";"]),
-    11: ("<top_decl>", ["const", "dearest", "id", "=", "<dearest_expr>", ";"]),
+    11: ("<top_decl>", ["const", "dearest", "<dearest_name>", "=", "<dearest_expr>", ";"]),
     12: ("<top_decl>", ["const", "rant", "id", "=", "<rant_expr>", ";"]),
     13: ("<top_decl>", ["const", "status", "id", "=", "<status_lit>", ";"]),
 
     # A. DEAR (Integer) - Type-specific init expr: expected (, +, ++, -, --, dear_lit, id
     14: ("<dear_tail>", ["=", "<dear_expr>", "<dear_multi>", ";"]),
     15: ("<dear_tail>", ["<dear_multi>", ";"]),
-    16: ("<dear_tail>", ["[", "<dear_expr>", "]", "<dear_array_assign>", "<dear_multi>", ";"]),
-    332: ("<dear_tail>", ["[", "]", "=", "<dear_array_source>", ";"]),
+    16: ("<dear_tail>", ["[", "<dear_array_after_lbracket>"]),
+    380: ("<dear_array_after_lbracket>", ["]", "=", "<dear_array_source>", ";"]),
+    381: ("<dear_array_after_lbracket>", ["<dear_expr>", "]", "<dear_array_assign>", "<dear_multi>", ";"]),
     17: ("<dear_multi>", [",", "id", "<dear_init_opt>", "<dear_multi>"]),
     18: ("<dear_multi>", ["λ"]),
     19: ("<dear_init_opt>", ["=", "<dear_expr>"]),
@@ -54,8 +59,9 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     # B. DEAREST (Float) - Uses <dearest_expr> (No %, bitwise). Array size = <dear_expr>
     21: ("<dearest_tail>", ["=", "<dearest_expr>", "<dearest_multi>", ";"]),
     22: ("<dearest_tail>", ["<dearest_multi>", ";"]),
-    23: ("<dearest_tail>", ["[", "<dear_expr>", "]", "<dearest_array_assign>", "<dearest_multi>", ";"]),
-    333: ("<dearest_tail>", ["[", "]", "=", "<dearest_array_source>", ";"]),
+    23: ("<dearest_tail>", ["[", "<dearest_array_after_lbracket>"]),
+    382: ("<dearest_array_after_lbracket>", ["]", "=", "<dearest_array_source>", ";"]),
+    383: ("<dearest_array_after_lbracket>", ["<dear_expr>", "]", "<dearest_array_assign>", "<dearest_multi>", ";"]),
     24: ("<dearest_multi>", [",", "id", "<dearest_init_opt>", "<dearest_multi>"]),
     25: ("<dearest_multi>", ["λ"]),
     26: ("<dearest_init_opt>", ["=", "<dearest_expr>"]),
@@ -64,8 +70,9 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
    # C. RANT (String) - Uses <rant_expr> (Concat only). Array size = <dear_expr>
     28: ("<rant_tail>", ["=", "<rant_expr>", "<rant_multi>", ";"]),
     29: ("<rant_tail>", ["<rant_multi>", ";"]),
-    30: ("<rant_tail>", ["[", "<dear_expr>", "]", "<rant_array_assign>", "<rant_multi>", ";"]),
-    334: ("<rant_tail>", ["[", "]", "=", "<rant_array_source>", ";"]),
+    30: ("<rant_tail>", ["[", "<rant_array_after_lbracket>"]),
+    384: ("<rant_array_after_lbracket>", ["]", "=", "<rant_array_source>", ";"]),
+    385: ("<rant_array_after_lbracket>", ["<dear_expr>", "]", "<rant_array_assign>", "<rant_multi>", ";"]),
     31: ("<rant_multi>", [",", "id", "<rant_init_opt>", "<rant_multi>"]),
     32: ("<rant_multi>", ["λ"]),
     33: ("<rant_init_opt>", ["=", "<rant_expr>"]),
@@ -76,8 +83,9 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     # D. STATUS (Boolean) - Uses <status_expr> (Logic + Relational). Array size = <dear_expr>
     35: ("<status_tail>", ["=", "<status_expr>", "<status_multi>", ";"]),
     36: ("<status_tail>", ["<status_multi>", ";"]),
-    37: ("<status_tail>", ["[", "<dear_expr>", "]", "<status_array_assign>", "<status_multi>", ";"]),
-    335: ("<status_tail>", ["[", "]", "=", "<status_array_source>", ";"]),
+    37: ("<status_tail>", ["[", "<status_array_after_lbracket>"]),
+    386: ("<status_array_after_lbracket>", ["]", "=", "<status_array_source>", ";"]),
+    387: ("<status_array_after_lbracket>", ["<dear_expr>", "]", "<status_array_assign>", "<status_multi>", ";"]),
     38: ("<status_multi>", [",", "id", "<status_init_opt>", "<status_multi>"]),
     39: ("<status_multi>", ["λ"]),
     40: ("<status_init_opt>", ["=", "<status_expr>"]),
@@ -136,7 +144,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     47: ("<local_decl_list>", ["<local_decl>", "<local_decl_list>"]),
     48: ("<local_decl_list>", ["λ"]),
     49: ("<local_decl>", ["dear", "id", "<dear_tail>"]),
-    50: ("<local_decl>", ["dearest", "id", "<dearest_tail>"]),
+    50: ("<local_decl>", ["dearest", "<dearest_name>", "<dearest_tail>"]),
     51: ("<local_decl>", ["rant", "id", "<rant_tail>"]),
     52: ("<local_decl>", ["status", "id", "<status_tail>"]),
 
@@ -156,7 +164,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     # TYPE-SPECIFIC ARRAY INITIALIZERS (rant_lit|id, dear_lit|id|-dear_lit, etc.)
     # RANT: rant_lit or id only
     336: ("<rant_array_source>", ["{", "<rant_array_lit_list>", "}"]),
-    337: ("<rant_array_source>", ["id"]),
+
     338: ("<rant_array_lit_list>", ["<rant_array_elem>", "<more_rant_array_lit>"]),
     339: ("<rant_array_elem>", ["rant_lit"]),
     340: ("<rant_array_elem>", ["id"]),
@@ -164,7 +172,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     342: ("<more_rant_array_lit>", ["λ"]),
     # DEAR: dear_lit, id, or -dear_lit
     343: ("<dear_array_source>", ["{", "<dear_array_lit_list>", "}"]),
-    344: ("<dear_array_source>", ["id"]),
+    
     345: ("<dear_array_lit_list>", ["<dear_array_elem>", "<more_dear_array_lit>"]),
     346: ("<dear_array_elem>", ["dear_lit"]),
     347: ("<dear_array_elem>", ["id"]),
@@ -173,7 +181,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     350: ("<more_dear_array_lit>", ["λ"]),
     # DEAREST: dearest_lit, dear_lit, id, -dearest_lit, -dear_lit
     351: ("<dearest_array_source>", ["{", "<dearest_array_lit_list>", "}"]),
-    352: ("<dearest_array_source>", ["id"]),
+    
     353: ("<dearest_array_lit_list>", ["<dearest_array_elem>", "<more_dearest_array_lit>"]),
     354: ("<dearest_array_elem>", ["dearest_lit"]),
     355: ("<dearest_array_elem>", ["dear_lit"]),
@@ -185,7 +193,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     361: ("<more_dearest_array_lit>", ["λ"]),
     # STATUS: greenflag, redflag, id
     362: ("<status_array_source>", ["{", "<status_array_lit_list>", "}"]),
-    363: ("<status_array_source>", ["id"]),
+    
     364: ("<status_array_lit_list>", ["<status_array_elem>", "<more_status_array_lit>"]),
     365: ("<status_array_elem>", ["greenflag"]),
     366: ("<status_array_elem>", ["redflag"]),
@@ -264,7 +272,9 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     # ==========================================
     # 7. ID SUFFIXES & UNARY
     # ==========================================
-    101: ("<id_suffix>", ["[", "<expr>", "]", "<id_suffix>"]),
+    # Array index: dedicated nonterminal (semicolon not part of it; can tailor later)
+    388: ("<array_index_expr>", ["<expr>"]),
+    101: ("<id_suffix>", ["[", "<array_index_expr>", "]", "<id_suffix>"]),
     102: ("<id_suffix>", ["<assign_ops>", "<assign_values>", ";"]),
     103: ("<id_suffix>", ["(", "<arguments>", ")", ";"]),
     104: ("<id_suffix>", ["<unary_ops>", ";"]),
@@ -293,7 +303,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     # ==========================================
     120: ("<input_state>", ["give", ">>", "id", "<input_tail>", "<more_input_ids>", ";"]),
     121: ("<input_state>", ["overshare", "(", "id", ")", ";"]),
-    122: ("<input_tail>", ["[", "<expr>", "]", "<input_tail>"]),
+    122: ("<input_tail>", ["[", "<array_index_expr>", "]", "<input_tail>"]),
     123: ("<input_tail>", ["λ"]),
     124: ("<more_input_ids>", [">>", "id", "<input_tail>", "<more_input_ids>"]),
     125: ("<more_input_ids>", ["λ"]),
@@ -389,7 +399,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     191: ("<factor>", ["++", "id"]),
     192: ("<factor>", ["--", "id"]),
 
-    193: ("<factor_tail>", ["[", "<expr>", "]", "<factor_tail>"]),
+    193: ("<factor_tail>", ["[", "<array_index_expr>", "]", "<factor_tail>"]),
     194: ("<factor_tail>", ["(", "<arguments>", ")"]),
     195: ("<factor_tail>", ["++"]),
     196: ("<factor_tail>", ["--"]),

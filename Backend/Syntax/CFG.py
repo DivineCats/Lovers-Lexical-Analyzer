@@ -404,7 +404,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     295: ("<dear_factor>", ["id"]),
     296: ("<dear_factor>", ["-", "<dear_factor>"]),
     297: ("<dear_factor>", ["+", "<dear_factor>"]),
-    298: ("<dear_factor>", ["~", "<dear_factor>"]),
+   
 
     # B. FLOAT (dearest) - Math only, no % or bitwise
     299: ("<dearest_expr>", ["<dearest_term>", "<dearest_next>"]),

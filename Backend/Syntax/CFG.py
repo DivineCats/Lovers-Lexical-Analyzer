@@ -434,6 +434,8 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     276: ("<assign_rhs_rel_op>", ["<="]),
     277: ("<assign_rhs_rel_op>", [">"]),
     278: ("<assign_rhs_rel_op>", [">="]),
+    378: ("<assign_rhs_rel_op>", ["=="]),
+    379: ("<assign_rhs_rel_op>", ["!="]),
     # ==========================================
     # TAILORED EXPRESSIONS (C++ MIMIC)
     # ==========================================

@@ -166,10 +166,26 @@ class Lexer:
 
         two_char = ch + self._peek()
         if two_char in MULTI_CHAR_OPERATORS:
-            self._advance()
-            self._validate_symbol_follow(two_char, self.line, self.column)
-            tokens.append(Token(MULTI_CHAR_OPERATORS[two_char], two_char, line=start_line, column=start_col))
-            return
+            # Context-sensitive: after a numeric literal, do NOT greedily match
+            # ++ or -- as a single two-char token.  Instead, emit the first char
+            # as a plain arithmetic operator so that  10---a  tokenises as
+            #   dear_lit(10)  MINUS(-)  OP_DEC(--)  id(a)
+            # and the parser sees  10 - (--a)  (arithmetic minus, then unary --).
+            if two_char in ("++", "--"):
+                prev = tokens[-1] if tokens else None
+                if prev and prev.kind in ("dear_lit", "dearest_lit"):
+                    # Fall through to the single-char handler below.
+                    pass
+                else:
+                    self._advance()
+                    self._validate_symbol_follow(two_char, self.line, self.column)
+                    tokens.append(Token(MULTI_CHAR_OPERATORS[two_char], two_char, line=start_line, column=start_col))
+                    return
+            else:
+                self._advance()
+                self._validate_symbol_follow(two_char, self.line, self.column)
+                tokens.append(Token(MULTI_CHAR_OPERATORS[two_char], two_char, line=start_line, column=start_col))
+                return
 
         if ch in SINGLE_CHAR_TOKENS:
             lexeme = ch

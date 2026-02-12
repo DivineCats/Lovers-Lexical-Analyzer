@@ -64,12 +64,12 @@ reserved_word_follows = {
 # --- Reserved symbols and their expected followers -------------------------
 
 reserved_symbol_follows = {
-    # Arithmetic
-    "+": {" ", "\t", "\n", "alphanum", "(",},
-    "-": {" ", "\t", "\n", "alphanum", "("},
-    "*": {" ", "\t", "\n", "alphanum", "("},
-    "/": {" ", "\t", "\n", "alphanum", "(",},
-    "%": {" ", "\t", "\n", "alphanum", "("},
+    # Arithmetic  (+ and - may be followed by unary +/-/++/--)
+    "+": {" ", "\t", "\n", "alphanum", "(", "+", "-"},
+    "-": {" ", "\t", "\n", "alphanum", "(", "+", "-"},
+    "*": {" ", "\t", "\n", "alphanum", "(", "+", "-"},
+    "/": {" ", "\t", "\n", "alphanum", "(", "+", "-"},
+    "%": {" ", "\t", "\n", "alphanum", "(", "+", "-"},
     # Assignment
     "=": {" ", "\t", "\n", '"', "alphanum", "(", "{"},
     "+=": {" ", "\t", "\n", "alphanum", '"', "("},

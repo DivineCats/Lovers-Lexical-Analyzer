@@ -407,6 +407,8 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     174: ("<expr_ar>", ["<term>", "<expr_next>"]),
     175: ("<expr_next>", ["+", "<term>", "<expr_next>"]),
     176: ("<expr_next>", ["-", "<term>", "<expr_next>"]),
+    591: ("<expr_next>", ["--", "<term>", "<expr_next>"]),
+    592: ("<expr_next>", ["++", "<term>", "<expr_next>"]),
     177: ("<expr_next>", ["λ"]),
 
     178: ("<term>", ["<factor>", "<term_next>"]),
@@ -420,8 +422,8 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     # ==========================================
     183: ("<factor>", ["(", "<paren_expr>", ")"]),
     184: ("<factor>", ["id", "<factor_tail>"]),
-    185: ("<factor>", ["dear_lit", "<factor_tail>"]),
-    186: ("<factor>", ["dearest_lit", "<factor_tail>"]),
+    185: ("<factor>", ["dear_lit"]),
+    186: ("<factor>", ["dearest_lit"]),
     187: ("<factor>", ["rant_lit"]),
     188: ("<factor>", ["<status_lit>"]),
     189: ("<factor>", ["-", "<factor>"]),
@@ -452,6 +454,8 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     209: ("<paren_expr_ar>", ["<paren_term>", "<paren_expr_next>"]),
     210: ("<paren_expr_next>", ["+", "<paren_term>", "<paren_expr_next>"]),
     211: ("<paren_expr_next>", ["-", "<paren_term>", "<paren_expr_next>"]),
+    593: ("<paren_expr_next>", ["--", "<paren_term>", "<paren_expr_next>"]),
+    594: ("<paren_expr_next>", ["++", "<paren_term>", "<paren_expr_next>"]),
     212: ("<paren_expr_next>", ["λ"]),
     213: ("<paren_term>", ["<factor>", "<paren_term_next>"]),
     214: ("<paren_term_next>", ["*", "<factor>", "<paren_term_next>"]),

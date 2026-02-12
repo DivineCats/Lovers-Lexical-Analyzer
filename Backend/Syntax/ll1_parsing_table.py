@@ -180,6 +180,7 @@ def build_parsing_table() -> ParsingTable:
                 if b == END_MARKER:
                     # parsetv2 handles '$' separately as end-of-input
                     continue
-                table[lhs][b] = EPSILON_RULE
+                if b not in table[lhs]:  # don't overwrite FIRST-based entry
+                    table[lhs][b] = EPSILON_RULE
     
     return table

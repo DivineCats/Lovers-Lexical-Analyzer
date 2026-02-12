@@ -28,14 +28,14 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     8: ("<top_decl>", ["boundaries", "id", "{", "<boundaries_decls_opt>", "}"]),
     9: ("<top_decl>", ["avoidant", "id", "(", "<parameter>", ")", "{", "<body_func>", "}"]),
 
-    # Return-type functions: type id ( parameter ) { body_func }
-    218: ("<dear_after_id>", ["(", "<parameter>", ")", "{", "<body_func>", "}"]),
+    # Return-type functions: type id ( parameter ) { typed_func_body } (must end with comeback)
+    218: ("<dear_after_id>", ["(", "<parameter>", ")", "{", "<typed_func_body>", "}"]),
     219: ("<dear_after_id>", ["<dear_tail>"]),
-    220: ("<dearest_after_id>", ["(", "<parameter>", ")", "{", "<body_func>", "}"]),
+    220: ("<dearest_after_id>", ["(", "<parameter>", ")", "{", "<typed_func_body>", "}"]),
     221: ("<dearest_after_id>", ["<dearest_tail>"]),
-    222: ("<rant_after_id>", ["(", "<parameter>", ")", "{", "<body_func>", "}"]),
+    222: ("<rant_after_id>", ["(", "<parameter>", ")", "{", "<typed_func_body>", "}"]),
     223: ("<rant_after_id>", ["<rant_tail>"]),
-    224: ("<status_after_id>", ["(", "<parameter>", ")", "{", "<body_func>", "}"]),
+    224: ("<status_after_id>", ["(", "<parameter>", ")", "{", "<typed_func_body>", "}"]),
     225: ("<status_after_id>", ["<status_tail>"]),
     # const <data-type> <identifier> = <value/expression> ; (factored so LL(1) chooses by data-type)
     10: ("<top_decl>", ["const", "<const_decl>"]),
@@ -156,6 +156,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     # 2. FUNCTIONS & LOCAL DECLARATIONS (STRICT TYPED)
     # ==========================================
     46: ("<body_func>", ["<local_decl_list>", "<statements>"]),
+    437: ("<typed_func_body>", ["<local_decl_list>", "<statements>", "<comeback_state>"]),
     47: ("<local_decl_list>", ["<local_decl>", "<local_decl_list>"]),
     48: ("<local_decl_list>", ["λ"]),
     49: ("<local_decl>", ["dear", "id", "<dear_tail>"]),
@@ -361,9 +362,11 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     144: ("<for_init>", ["<data_type>", "id", "=", "<expr_ar>"]),
     145: ("<for_init>", ["id", "=", "<expr_ar>"]),
 
-    146: ("<for_ud>", ["id", "<assign_ops>", "<expr>"]),
-    147: ("<for_ud>", ["id", "<unary_ops>"]),
-    148: ("<for_ud>", ["<unary_ops>", "id"]),
+    # Factored so LL(1): id assign_ops expr vs id unary_ops both start with id → id for_ud_tail
+    146: ("<for_ud>", ["id", "<for_ud_tail>"]),
+    147: ("<for_ud_tail>", ["<assign_ops>", "<expr>"]),
+    148: ("<for_ud_tail>", ["<unary_ops>"]),
+    439: ("<for_ud>", ["<unary_ops>", "id"]),
 
     149: ("<choose_state>", ["choose", "(", "<expr>", ")", "{", "<phase_lst>", "<bareminimum_opt>", "}"]),
     150: ("<phase_lst>", ["phase", "<choose_const>", ":", "<body_func>", "breakup", ";", "<phase_lst_next>"]),
@@ -501,13 +504,11 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     299: ("<dearest_expr>", ["<dearest_term>", "<dearest_next>"]),
     300: ("<dearest_next>", ["+", "<dearest_term>", "<dearest_next>"]),
     301: ("<dearest_next>", ["-", "<dearest_term>", "<dearest_next>"]),
-    393: ("<dearest_next>", ["<<", "<dearest_term>", "<dearest_next>"]),
-    394: ("<dearest_next>", [">>", "<dearest_term>", "<dearest_next>"]),
+
     302: ("<dearest_next>", ["λ"]),
     303: ("<dearest_term>", ["<dearest_factor>", "<dearest_term_next>"]),
     304: ("<dearest_term_next>", ["*", "<dearest_factor>", "<dearest_term_next>"]),
     305: ("<dearest_term_next>", ["/", "<dearest_factor>", "<dearest_term_next>"]),
-    395: ("<dearest_term_next>", ["%", "<dearest_factor>", "<dearest_term_next>"]),
     306: ("<dearest_term_next>", ["λ"]),
     307: ("<dearest_factor>", ["(", "<dearest_expr>", ")"]),
     308: ("<dearest_factor>", ["dearest_lit"]),

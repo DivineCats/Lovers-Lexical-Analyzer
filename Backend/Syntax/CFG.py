@@ -420,14 +420,14 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     # ==========================================
     183: ("<factor>", ["(", "<paren_expr>", ")"]),
     184: ("<factor>", ["id", "<factor_tail>"]),
-    185: ("<factor>", ["dear_lit"]),
-    186: ("<factor>", ["dearest_lit"]),
+    185: ("<factor>", ["dear_lit", "<factor_tail>"]),
+    186: ("<factor>", ["dearest_lit", "<factor_tail>"]),
     187: ("<factor>", ["rant_lit"]),
     188: ("<factor>", ["<status_lit>"]),
     189: ("<factor>", ["-", "<factor>"]),
     190: ("<factor>", ["+", "<factor>"]),
-    191: ("<factor>", ["++", "id"]),
-    192: ("<factor>", ["--", "id"]),
+    191: ("<factor>", ["++", "<factor>"]),
+    192: ("<factor>", ["--", "<factor>"]),
 
     193: ("<factor_tail>", ["[", "<array_index_expr>", "]", "<factor_tail>"]),
     194: ("<factor_tail>", ["(", "<arguments>", ")"]),

@@ -88,10 +88,10 @@ reserved_symbol_follows = {
     "<": {" ", "\t", "\n", "alphanum", '"', "("},
     ">=": {" ", "\t", "\n", "alphanum", '"', "("},
     "<=": {" ", "\t", "\n", "alphanum", '"', "("},
-    # Unary (postfix produces a value, so must allow all expression-following tokens)
-    "++": {" ", "\t", "\n", ";", ")", "alphabet", "alphanum",
+    # Unary (postfix produces a value; prefix can precede any factor incl. parens)
+    "++": {" ", "\t", "\n", ";", ")", "(", "alphabet", "alphanum",
            "+", "-", "*", "/", "%", ",", "]", "}", "<", ">", "=", "&", "|", ".", "\0"},
-    "--": {" ", "\t", "\n", ";", ")", "alphabet", "alphanum",
+    "--": {" ", "\t", "\n", ";", ")", "(", "alphabet", "alphanum",
            "+", "-", "*", "/", "%", ",", "]", "}", "<", ">", "=", "&", "|", ".", "\0"},
     # Other
     "(": {" ", "\t", "\n", "alphanum", '"', "(", "!", ")", "-"},

@@ -483,6 +483,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     307: ("<dearest_factor>", ["(", "<dearest_expr>", ")"]),
     308: ("<dearest_factor>", ["dearest_lit"]),
     309: ("<dearest_factor>", ["id"]),
+    392: ("<dearest_factor>", ["dear_lit"]),
     310: ("<dearest_factor>", ["-", "<dearest_factor>"]),
 
     # C. STRING (rant) - Concat only

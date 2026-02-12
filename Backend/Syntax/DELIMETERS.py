@@ -141,7 +141,7 @@ string_lit = {
     ";", ",", ")", "}", "]",  # Separators
     "+",                     # Concatenation 
     "==", "!=",              # Comparison 
-    "<<", ":"                   # Output chaining 
+    "<<", ":" , "<"                # Output chaining 
 },
 }
 

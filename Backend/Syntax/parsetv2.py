@@ -133,6 +133,7 @@ def normalize_token(token_kind: str) -> str:
         "OP_DIV_ASSIGN": "/=",
         "OP_MOD_ASSIGN": "%=",
         "OP_SCOPE": "::",
+        "NOT": "!",
     }
     
     # If it's a mapped token, return the symbol

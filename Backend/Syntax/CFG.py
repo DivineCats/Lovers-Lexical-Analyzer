@@ -21,10 +21,12 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     # ==========================================
     # After "dear id" / "dearest id" etc.: ( parameter ) { body } = function, else _tail = variable
     # All data types: only id after type (no literals as name)
+    # status isolated like const: one production for keyword, then dedicated nonterminal
     4: ("<top_decl>", ["dear", "id", "<dear_after_id>"]),
     5: ("<top_decl>", ["dearest", "id", "<dearest_after_id>"]),
     6: ("<top_decl>", ["rant", "id", "<rant_after_id>"]),
-    7: ("<top_decl>", ["status", "id", "<status_after_id>"]),
+    7: ("<top_decl>", ["status", "<status_top_decl>"]),
+    440: ("<status_top_decl>", ["id", "<status_after_id>"]),
     8: ("<top_decl>", ["boundaries", "id", "{", "<boundaries_decls_opt>", "}"]),
     9: ("<top_decl>", ["avoidant", "id", "(", "<parameter>", ")", "{", "<body_func>", "}"]),
 
@@ -162,7 +164,8 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     49: ("<local_decl>", ["dear", "id", "<dear_tail>"]),
     50: ("<local_decl>", ["dearest", "id", "<dearest_tail>"]),
     51: ("<local_decl>", ["rant", "id", "<rant_tail>"]),
-    52: ("<local_decl>", ["status", "id", "<status_tail>"]),
+    52: ("<local_decl>", ["status", "<status_local_decl>"]),
+    441: ("<status_local_decl>", ["id", "<status_tail>"]),
 
     # ==========================================
     # 3. ASSIGNMENT LOGIC
@@ -534,16 +537,30 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     321: ("<status_and>", ["<status_factor>", "<status_and_next>"]),
     322: ("<status_and_next>", ["&&", "<status_factor>", "<status_and_next>"]),
     323: ("<status_and_next>", ["λ"]),
-    324: ("<status_factor>", ["(", "<status_expr>", ")"]),
     325: ("<status_factor>", ["not", "<status_factor>"]),
+    335: ("<status_factor>", ["!", "<status_factor>"]),
     326: ("<status_factor>", ["<status_lit>"]),
-    327: ("<status_factor>", ["id"]),
     328: ("<status_factor>", ["<status_int_compare>"]),
+    332: ("<status_factor>", ["dear_lit"]),
+    # id: after status_int_compare so table[status_factor][id] = id status_factor_after_id (enables id, id>expr)
+    327: ("<status_factor>", ["id", "<status_factor_after_id>"]),
+    333: ("<status_factor_after_id>", ["λ"]),
+    334: ("<status_factor_after_id>", ["<rel_op>", "<dear_expr>"]),
 
-    # E. Integer comparison (used inside status_factor for x > y etc.)
-    329: ("<status_int_compare>", ["<dear_expr>", "<status_int_compare_next>"]),
+    # E. Integer comparison: left side cannot be bare id (so id uses status_factor_after_id; (x>5), 5>y use this)
+    442: ("<dear_expr_not_id>", ["<dear_term_not_id>", "<dear_next>"]),
+    443: ("<dear_term_not_id>", ["<dear_factor_not_id>", "<dear_term_next>"]),
+    444: ("<dear_factor_not_id>", ["(", "<dear_expr>", ")"]),
+    445: ("<dear_factor_not_id>", ["dear_lit"]),
+    446: ("<dear_factor_not_id>", ["greenflag"]),
+    447: ("<dear_factor_not_id>", ["redflag"]),
+    448: ("<dear_factor_not_id>", ["-", "<dear_factor_not_id>"]),
+    449: ("<dear_factor_not_id>", ["+", "<dear_factor_not_id>"]),
+    329: ("<status_int_compare>", ["<dear_expr_not_id>", "<status_int_compare_next>"]),
     330: ("<status_int_compare_next>", ["<rel_op>", "<dear_expr>"]),
     331: ("<status_int_compare_next>", ["λ"]),
+    # ( status_expr ) after status_int_compare so table[status_factor]["("] = ( status_expr ) for (x>5)
+    450: ("<status_factor>", ["(", "<status_expr>", ")"]),
 
     # Assignment RHS: comparison and logical allowed; == and != prohibited (prevents x = y == z)
 }

@@ -44,8 +44,8 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     # A. DEAR (Integer) - Type-specific init expr: expected (, +, ++, -, --, dear_lit, id
     14: ("<dear_tail>", ["=", "<dear_expr>", "<dear_multi>", ";"]),
     15: ("<dear_tail>", ["<dear_multi>", ";"]),
-    16: ("<dear_tail>", ["[", "<dear_expr>", "]", "<array_assign>", "<dear_multi>", ";"]),
-    332: ("<dear_tail>", ["[", "]", "=", "<array_source>", ";"]),
+    16: ("<dear_tail>", ["[", "<dear_expr>", "]", "<dear_array_assign>", "<dear_multi>", ";"]),
+    332: ("<dear_tail>", ["[", "]", "=", "<dear_array_source>", ";"]),
     17: ("<dear_multi>", [",", "id", "<dear_init_opt>", "<dear_multi>"]),
     18: ("<dear_multi>", ["λ"]),
     19: ("<dear_init_opt>", ["=", "<dear_expr>"]),
@@ -54,8 +54,8 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     # B. DEAREST (Float) - Uses <dearest_expr> (No %, bitwise). Array size = <dear_expr>
     21: ("<dearest_tail>", ["=", "<dearest_expr>", "<dearest_multi>", ";"]),
     22: ("<dearest_tail>", ["<dearest_multi>", ";"]),
-    23: ("<dearest_tail>", ["[", "<dear_expr>", "]", "<array_assign>", "<dearest_multi>", ";"]),
-    333: ("<dearest_tail>", ["[", "]", "=", "<array_source>", ";"]),
+    23: ("<dearest_tail>", ["[", "<dear_expr>", "]", "<dearest_array_assign>", "<dearest_multi>", ";"]),
+    333: ("<dearest_tail>", ["[", "]", "=", "<dearest_array_source>", ";"]),
     24: ("<dearest_multi>", [",", "id", "<dearest_init_opt>", "<dearest_multi>"]),
     25: ("<dearest_multi>", ["λ"]),
     26: ("<dearest_init_opt>", ["=", "<dearest_expr>"]),
@@ -64,8 +64,8 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
    # C. RANT (String) - Uses <rant_expr> (Concat only). Array size = <dear_expr>
     28: ("<rant_tail>", ["=", "<rant_expr>", "<rant_multi>", ";"]),
     29: ("<rant_tail>", ["<rant_multi>", ";"]),
-    30: ("<rant_tail>", ["[", "<dear_expr>", "]", "<array_assign>", "<rant_multi>", ";"]),
-    334: ("<rant_tail>", ["[", "]", "=", "<array_source>", ";"]),
+    30: ("<rant_tail>", ["[", "<dear_expr>", "]", "<rant_array_assign>", "<rant_multi>", ";"]),
+    334: ("<rant_tail>", ["[", "]", "=", "<rant_array_source>", ";"]),
     31: ("<rant_multi>", [",", "id", "<rant_init_opt>", "<rant_multi>"]),
     32: ("<rant_multi>", ["λ"]),
     33: ("<rant_init_opt>", ["=", "<rant_expr>"]),
@@ -76,8 +76,8 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     # D. STATUS (Boolean) - Uses <status_expr> (Logic + Relational). Array size = <dear_expr>
     35: ("<status_tail>", ["=", "<status_expr>", "<status_multi>", ";"]),
     36: ("<status_tail>", ["<status_multi>", ";"]),
-    37: ("<status_tail>", ["[", "<dear_expr>", "]", "<array_assign>", "<status_multi>", ";"]),
-    335: ("<status_tail>", ["[", "]", "=", "<array_source>", ";"]),
+    37: ("<status_tail>", ["[", "<dear_expr>", "]", "<status_array_assign>", "<status_multi>", ";"]),
+    335: ("<status_tail>", ["[", "]", "=", "<status_array_source>", ";"]),
     38: ("<status_multi>", [",", "id", "<status_init_opt>", "<status_multi>"]),
     39: ("<status_multi>", ["λ"]),
     40: ("<status_init_opt>", ["=", "<status_expr>"]),
@@ -147,11 +147,60 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     53: ("<scalar_assign>", ["=", "<expr_ar>"]),
     54: ("<scalar_assign>", ["λ"]),
 
-    # ARRAY: Strict Source (List or ID)
+    # ARRAY: Strict Source (List or ID) - generic still used by init_value elsewhere
     55: ("<array_assign>", ["=", "<array_source>"]),
     56: ("<array_assign>", ["λ"]),
     57: ("<array_source>", ["{", "<array_lit_list>", "}"]),
     58: ("<array_source>", ["id"]),
+
+    # TYPE-SPECIFIC ARRAY INITIALIZERS (rant_lit|id, dear_lit|id|-dear_lit, etc.)
+    # RANT: rant_lit or id only
+    336: ("<rant_array_source>", ["{", "<rant_array_lit_list>", "}"]),
+    337: ("<rant_array_source>", ["id"]),
+    338: ("<rant_array_lit_list>", ["<rant_array_elem>", "<more_rant_array_lit>"]),
+    339: ("<rant_array_elem>", ["rant_lit"]),
+    340: ("<rant_array_elem>", ["id"]),
+    341: ("<more_rant_array_lit>", [",", "<rant_array_elem>", "<more_rant_array_lit>"]),
+    342: ("<more_rant_array_lit>", ["λ"]),
+    # DEAR: dear_lit, id, or -dear_lit
+    343: ("<dear_array_source>", ["{", "<dear_array_lit_list>", "}"]),
+    344: ("<dear_array_source>", ["id"]),
+    345: ("<dear_array_lit_list>", ["<dear_array_elem>", "<more_dear_array_lit>"]),
+    346: ("<dear_array_elem>", ["dear_lit"]),
+    347: ("<dear_array_elem>", ["id"]),
+    348: ("<dear_array_elem>", ["-", "dear_lit"]),
+    349: ("<more_dear_array_lit>", [",", "<dear_array_elem>", "<more_dear_array_lit>"]),
+    350: ("<more_dear_array_lit>", ["λ"]),
+    # DEAREST: dearest_lit, dear_lit, id, -dearest_lit, -dear_lit
+    351: ("<dearest_array_source>", ["{", "<dearest_array_lit_list>", "}"]),
+    352: ("<dearest_array_source>", ["id"]),
+    353: ("<dearest_array_lit_list>", ["<dearest_array_elem>", "<more_dearest_array_lit>"]),
+    354: ("<dearest_array_elem>", ["dearest_lit"]),
+    355: ("<dearest_array_elem>", ["dear_lit"]),
+    356: ("<dearest_array_elem>", ["id"]),
+    357: ("<dearest_array_elem>", ["-", "<dearest_neg_lit>"]),
+    358: ("<dearest_neg_lit>", ["dearest_lit"]),
+    359: ("<dearest_neg_lit>", ["dear_lit"]),
+    360: ("<more_dearest_array_lit>", [",", "<dearest_array_elem>", "<more_dearest_array_lit>"]),
+    361: ("<more_dearest_array_lit>", ["λ"]),
+    # STATUS: greenflag, redflag, id
+    362: ("<status_array_source>", ["{", "<status_array_lit_list>", "}"]),
+    363: ("<status_array_source>", ["id"]),
+    364: ("<status_array_lit_list>", ["<status_array_elem>", "<more_status_array_lit>"]),
+    365: ("<status_array_elem>", ["greenflag"]),
+    366: ("<status_array_elem>", ["redflag"]),
+    367: ("<status_array_elem>", ["id"]),
+    368: ("<more_status_array_lit>", [",", "<status_array_elem>", "<more_status_array_lit>"]),
+    369: ("<more_status_array_lit>", ["λ"]),
+    # Type-specific array assign (optional = source)
+    370: ("<dear_array_assign>", ["=", "<dear_array_source>"]),
+    371: ("<dear_array_assign>", ["λ"]),
+    372: ("<dearest_array_assign>", ["=", "<dearest_array_source>"]),
+    373: ("<dearest_array_assign>", ["λ"]),
+    374: ("<rant_array_assign>", ["=", "<rant_array_source>"]),
+    375: ("<rant_array_assign>", ["λ"]),
+    376: ("<status_array_assign>", ["=", "<status_array_source>"]),
+    377: ("<status_array_assign>", ["λ"]),
 
     # ==========================================
     # 4. INITIALIZATION & VALUES

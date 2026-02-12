@@ -471,14 +471,17 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     297: ("<dear_factor>", ["+", "<dear_factor>"]),
    
 
-    # B. FLOAT (dearest) - Math only, no % or bitwise
+    # B. FLOAT (dearest) - Same arithmetic as dear: +, -, *, /, %, <<, >>
     299: ("<dearest_expr>", ["<dearest_term>", "<dearest_next>"]),
     300: ("<dearest_next>", ["+", "<dearest_term>", "<dearest_next>"]),
     301: ("<dearest_next>", ["-", "<dearest_term>", "<dearest_next>"]),
+    393: ("<dearest_next>", ["<<", "<dearest_term>", "<dearest_next>"]),
+    394: ("<dearest_next>", [">>", "<dearest_term>", "<dearest_next>"]),
     302: ("<dearest_next>", ["λ"]),
     303: ("<dearest_term>", ["<dearest_factor>", "<dearest_term_next>"]),
     304: ("<dearest_term_next>", ["*", "<dearest_factor>", "<dearest_term_next>"]),
     305: ("<dearest_term_next>", ["/", "<dearest_factor>", "<dearest_term_next>"]),
+    395: ("<dearest_term_next>", ["%", "<dearest_factor>", "<dearest_term_next>"]),
     306: ("<dearest_term_next>", ["λ"]),
     307: ("<dearest_factor>", ["(", "<dearest_expr>", ")"]),
     308: ("<dearest_factor>", ["dearest_lit"]),

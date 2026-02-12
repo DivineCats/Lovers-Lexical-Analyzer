@@ -172,9 +172,9 @@
   border-color: var(--accent);
 }
 
-/* Monaco custom scrollbar styling: slim dark track with muted rounded thumb */
+/* Monaco scrollbar — same style as token table (pink/rose track + thumb) */
 .editor__body :where(.monaco-scrollable-element) .scrollbar {
-  background: transparent !important;
+  background: rgba(255, 191, 191, 0.03) !important;
 }
 
 .editor__body :where(.monaco-scrollable-element) .scrollbar.vertical {
@@ -182,25 +182,30 @@
 }
 
 .editor__body :where(.monaco-scrollable-element) .scrollbar .slider {
-  background: linear-gradient(180deg, #630202, #630202) !important;
+  background: linear-gradient(180deg, rgba(255,191,191,0.7), rgba(255,191,191,0.5)) !important;
   border-radius: 8px !important;
   width: 8px !important;
   margin: 6px 2px !important;
-  box-shadow: inset 0 0 0 1px rgba(233, 210, 210, 0.25);
+  border: 3px solid rgba(0,0,0,0.12);
+  box-sizing: border-box;
 }
 
 .editor__body :where(.monaco-scrollable-element) .scrollbar .slider:hover {
-  background: linear-gradient(180deg, #630202, #630202) !important;
+  background: linear-gradient(180deg, rgba(255,191,191,0.8), rgba(255,191,191,0.6)) !important;
 }
 
-/* Webkit fallback for embedded scrollable layers */
+/* Webkit fallback — match token table scrollbar */
 .editor__body :where(.monaco-editor) ::-webkit-scrollbar {
-  width: 10px;
+  width: 12px;
+}
+.editor__body :where(.monaco-editor) ::-webkit-scrollbar-track {
+  background: rgba(255, 191, 191, 0.03);
+  border-radius: 8px;
 }
 .editor__body :where(.monaco-editor) ::-webkit-scrollbar-thumb {
-  background: #630202;
+  background: linear-gradient(180deg, rgba(255,191,191,0.7), rgba(255,191,191,0.5));
   border-radius: 8px;
-  border: 2px solid 630202;
+  border: 3px solid rgba(0,0,0,0.12);
 }
 
 /* hide scrollbar arrows */

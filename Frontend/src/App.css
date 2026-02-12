@@ -1,4 +1,4 @@
-﻿/* Make root elements fill the full viewport so the app can use the whole screen */
+/* Make root elements fill the full viewport so the app can use the whole screen */
 html, body, #root {
   height: 100%;
   width: 100%;
@@ -25,7 +25,7 @@ body {
   width: 100%;
   max-width: none;
   padding: 20px;
-  padding-top: 84px; /* space for the fixed header so content (editor) doesn't sit under it */
+  /* Top padding intentionally removed per request */
   box-sizing: border-box;
   display: grid;
   grid-template-columns: 1fr var(--tokens-width);
@@ -71,6 +71,69 @@ body {
   min-width: 0;
   background: transparent;
   border: none;
+}
+
+/* Header controls (Run button + parser select) */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.run-button {
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 191, 191, 0.35);
+  background: #c9586c;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(233, 30, 99, 0.3);
+}
+
+.run-button--disabled {
+  background: #875656;
+  cursor: not-allowed;
+}
+
+.run-button--error {
+  border: 1px dashed rgba(255, 255, 255, 0.85);
+}
+
+.run-button:not(:disabled):hover {
+  background: #e91e63;
+  box-shadow: 0 2px 12px rgba(233, 30, 99, 0.5);
+}
+
+.parser-select {
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+/* Status: circle only, no text. Idle = muted, Loading = amber, Ready = green, Error = pink */
+.status {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+  padding: 0;
+}
+.status--idle {
+  background: rgba(255, 255, 255, 0.4);
+}
+.status--loading {
+  background: #f59e0b;
+}
+.status--ready {
+  background: #4ade80;
+}
+.status--error {
+  background: #e91e63;
 }
 
 /* === Responsive: stack panels on small screens === */

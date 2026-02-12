@@ -1,1 +1,0 @@
-"""Syntax errors definitions stub."""

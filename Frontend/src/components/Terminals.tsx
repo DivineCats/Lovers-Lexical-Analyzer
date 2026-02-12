@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useState, useEffect } from "react";
 import "./Terminals.css";
-
-export type Command = (args: string[]) => Promise<string | void> | string | void;
+import {
+  getConstructionHint,
+  getKeywordSuggestions,
+  getSymbolSuggestions,
+  extractExpectedTokens,
+} from "./syntaxHelper";
 
 export type ValidationTokenInfo = {
   lexeme?: string;
@@ -10,205 +14,288 @@ export type ValidationTokenInfo = {
   column?: number;
 };
 
+export type ValidationError = {
+  ok: boolean;
+  message: string;
+  code?: string;
+  token?: ValidationTokenInfo;
+  expected?: string[];
+  line?: number;
+  column?: number;
+  found?: string;
+  context?: string;
+};
+
 export type ValidationResult = {
   ok: boolean;
   message: string;
   code?: string;
   token?: ValidationTokenInfo;
   expected?: string[];
+  errors?: ValidationError[];
+  line?: number;
+  column?: number;
+  found?: string;
+};
+
+export type ErrorItem = {
+  type: "lexical" | "syntax" | "semantic" | "backend";
+  message: string;
+  line?: number;
+  column?: number;
+  expected?: string[];
+  unexpectedToken?: string;
+  context?: string;
+  expectedDelimiter?: string;
+  possibleReserved?: string;
 };
 
 type Props = {
-  commands?: Record<string, Command>;
-  prompt?: string;
   validation?: ValidationResult | null;
   lexError?: string | null;
+  lexErrors?: string[];
+  backendError?: string | null;
 };
 
-export default function Terminal({
-  commands = {},
-  prompt = "guest",
-  validation = null,
-  lexError = null,
-}: Props) {
-  const registry = useMemo<Record<string, Command>>(
-    () => ({
-      help: () =>
-        ["Built-ins:", "  help", "  clear", "  echo [text]", ""].join("\n"),
-      clear: () => "",
-      echo: (args) => args.join(" "),
-      ...commands,
-    }),
-    [commands]
-  );
+type TabType = "lexical" | "syntax" | "semantic";
 
-  const [line, setLine] = useState("");
-  const [hist, setHist] = useState<string[]>([]);
-  const [idx, setIdx] = useState(-1);
+export default function Terminal({ validation = null, lexError = null, lexErrors = [], backendError = null }: Props) {
+  const [activeTab, setActiveTab] = useState<TabType>("lexical");
 
-  const panelRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
+  // Auto-switch to first tab that has errors: lexical first, then syntax if no lexical
   useEffect(() => {
-    const el = panelRef.current;
-    const focus = () => inputRef.current?.focus();
-    el?.addEventListener("click", focus);
-    return () => el?.removeEventListener("click", focus);
-  }, []);
+    const hasLexical = lexErrors.length > 0 || (lexError != null && lexError.trim() !== "");
+    const hasSyntax = validation != null && !validation.ok;
+    if (hasLexical) setActiveTab("lexical");
+    else if (hasSyntax) setActiveTab("syntax");
+  }, [lexErrors.length, lexError, validation]);
 
-  const run = async (src: string) => {
-    const cmdline = src.trim();
-    if (!cmdline) {
-      setLine("");
-      return;
-    }
+  // Parse all errors into structured format
+  const errors: ErrorItem[] = [];
 
-    const [name, ...args] = splitArgs(cmdline);
-    if (name === "clear") {
-      setLine("");
-      return;
-    }
-
-    const fn = registry[name];
-    if (!fn) {
-      console.warn(`command not found: ${name}`);
-      setLine("");
-      return;
-    }
-
-    try {
-      await fn(args);
-    } catch (e: any) {
-      console.error(e?.message ?? String(e));
-    } finally {
-      setLine("");
-    }
+  const renderKeywordSuggestions = (message: string) => {
+    // Try to extract an offending lexeme from backticks in the first line
+    const m = message.match(/`([A-Za-z][A-Za-z0-9_]*)`/);
+    const word = m ? m[1] : undefined;
+    if (!word) return null;
+    const suggestions = getKeywordSuggestions(word);
+    if (suggestions.length === 0) return null;
+    return (
+      <div className="error-details">
+        <div className="error-detail-line">Possible Reserved words: {suggestions.join(", ")}</div>
+      </div>
+    );
   };
 
-  const validationLines = useMemo(() => {
-    if (lexError) {
-      return ["Lexing error:", lexError];
-    }
-
-    if (!validation) {
-      return ['No validation run yet. Type "validate".'];
-    }
-
-    if (!validation.ok) {
-      const lines: string[] = [];
-      const parts: string[] = [];
-      if (validation.token?.line != null && validation.token?.column != null) {
-        parts.push(`line ${validation.token.line}, column ${validation.token.column}`);
-      }
-      if (validation.code) {
-        parts.push(validation.code);
-      }
-      lines.push(parts.length ? `Error (${parts.join(" | ")}):` : "Error:");
-      lines.push(validation.message ?? "Syntax error.");
-      if (validation.token?.lexeme) {
-        lines.push(`Found: ${validation.token.lexeme}`);
-      }
-      if (validation.expected?.length) {
-        lines.push("Expected tokens:");
-        validation.expected.forEach((sym, idx) =>
-          lines.push(`  ${idx + 1}. ${sym}`)
-        );
-      }
-      return lines;
-    }
-
-    const successLabel = validation.code ? `[${validation.code}] ` : "";
-    return [
-      `${successLabel}${validation.message ?? "Structure looks valid."}`,
-    ];
-  }, [validation, lexError]);
-
-  const onKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      setHist((h) => [line, ...h]);
-      setIdx(-1);
-      run(line).catch(() => {});
-      return;
-    }
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
-      const next = Math.min(hist.length - 1, idx + 1);
-      setIdx(next);
-      setLine(next >= 0 ? hist[next] : "");
-      return;
-    }
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      const next = Math.max(-1, idx - 1);
-      setIdx(next);
-      setLine(next >= 0 ? hist[next] : "");
-      return;
-    }
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c") {
-      setLine("");
-    }
+  const renderSymbolSuggestions = (message: string) => {
+    // Extract offending symbol inside backticks (operators often are non-letters)
+    const m = message.match(/`([^`]+)`/);
+    const sym = m ? m[1] : undefined;
+    if (!sym) return null;
+    const suggestions = getSymbolSuggestions(sym);
+    if (suggestions.length === 0) return null;
+    return (
+      <div className="error-details">
+        <div className="error-detail-line">Possible symbols: {suggestions.join(", ")}</div>
+      </div>
+    );
   };
+  
+  if (lexErrors.length > 0) {
+    lexErrors.forEach((err) => {
+      const lines = err.split(/\r?\n/).filter(line => line.trim().length > 0);
+      const firstLine = lines[0] || "";
+      
+      // Extract line and column if present (format: "at line X, column Y" or "at X:Y")
+      const locationMatch = firstLine.match(/at (?:line )?(\d+)[,:]\s*(?:column )?(\d+)/i);
+      
+      // Extract "Expected delimiter:" line for reserved words
+      const expectedDelimiterLine = lines.find(line => line.toLowerCase().startsWith("expected delimiter:"));
+      
+      // Extract "Possible Reserved words:" line
+      const possibleReservedLine = lines.find(line => line.toLowerCase().startsWith("possible reserved"));
+      
+      const expectedTokens = extractExpectedTokens(lines);
+      
+      errors.push({
+        type: "lexical",
+        message: firstLine,
+        line: locationMatch ? parseInt(locationMatch[1]) : undefined,
+        column: locationMatch ? parseInt(locationMatch[2]) : undefined,
+        expected: expectedTokens.length > 0 ? expectedTokens : undefined,
+        expectedDelimiter: expectedDelimiterLine,
+        possibleReserved: possibleReservedLine,
+      });
+    });
+  } else if (lexError) {
+    const lines = lexError.split(/\r?\n/).filter(line => line.trim().length > 0);
+    const firstLine = lines[0] || "";
+    const locationMatch = firstLine.match(/at (?:line )?(\d+)[,:]\s*(?:column )?(\d+)/i);
+    
+    // Extract "Expected delimiter:" line for reserved words
+    const expectedDelimiterLine = lines.find(line => line.toLowerCase().startsWith("expected delimiter:"));
+    
+    // Extract "Possible Reserved words:" line
+    const possibleReservedLine = lines.find(line => line.toLowerCase().startsWith("possible reserved"));
+    
+    const expectedTokens = extractExpectedTokens(lines);
+    
+    errors.push({
+      type: "lexical",
+      message: firstLine,
+      line: locationMatch ? parseInt(locationMatch[1]) : undefined,
+      column: locationMatch ? parseInt(locationMatch[2]) : undefined,
+      expected: expectedTokens.length > 0 ? expectedTokens : undefined,
+      expectedDelimiter: expectedDelimiterLine,
+      possibleReserved: possibleReservedLine,
+    });
+  }
 
-  const logState = validation
-    ? validation.ok
-      ? "is-ok"
-      : "is-error"
-    : "is-idle";
+  // Process syntax validation errors
+  if (validation && !validation.ok) {
+    if (validation.errors && validation.errors.length > 0) {
+      validation.errors.forEach((err: any) => {
+        errors.push({
+          type: "syntax",
+          message: err.message || "Syntax error",
+          line: err.line,
+          column: err.column,
+          expected: err.expected,
+          unexpectedToken: err.found,
+          context: err.context,
+        });
+      });
+    } else {
+      errors.push({
+        type: "syntax",
+        message: validation.message,
+        line: (validation as any).line,
+        column: (validation as any).column,
+        expected: validation.expected,
+        unexpectedToken: (validation as any).found,
+      });
+    }
+  }
+
+  if (backendError) {
+    errors.push({
+      type: "backend",
+      message: backendError,
+    });
+  }
+
+  const lexicalCount = errors.filter(e => e.type === "lexical").length;
+  const syntaxCount = errors.filter(e => e.type === "syntax").length;
+  const semanticCount = errors.filter(e => e.type === "semantic").length;
+  const backendCount = errors.filter(e => e.type === "backend").length;
+  const hasErrors = lexicalCount > 0 || syntaxCount > 0 || semanticCount > 0 || backendCount > 0;
+
+  // Check if we should show the "resolve lexical first" prompt
+  const hasLexicalErrors = lexicalCount > 0;
+  const syntaxDisplayCount = syntaxCount + (hasLexicalErrors ? 1 : 0);
+
+  const filteredErrors = errors.filter(error => error.type === activeTab);
 
   return (
-    <div className="terminal-panel" ref={panelRef}>
-      <div className="header">Terminal</div>
-      <div className={`term-log ${logState}`} aria-live="polite">
-        {validationLines.map((text, idx) => (
-          <div key={`${text}-${idx}`} className="term-log__line">
-            {text}
-          </div>
-        ))}
+    <div className="terminal-panel">
+      <div className="terminal-header">
+        <div className="header">Terminal</div>
+        <div className="tab-navigation">
+          <button
+            className={`tab-button ${activeTab === "lexical" ? "active" : ""}`}
+            onClick={() => setActiveTab("lexical")}
+          >
+            Lexical ({lexicalCount})
+          </button>
+          <button
+            className={`tab-button ${activeTab === "syntax" ? "active" : ""}`}
+            onClick={() => setActiveTab("syntax")}
+          >
+            Syntax ({syntaxDisplayCount})
+          </button>
+          <button
+            className={`tab-button ${activeTab === "semantic" ? "active" : ""}`}
+            onClick={() => setActiveTab("semantic")}
+          >
+            Semantic ({semanticCount})
+          </button>
+        </div>
       </div>
+      <div className="term-log" aria-live="polite">
+        {filteredErrors.length === 0 && !(hasLexicalErrors && activeTab === "syntax") && (
+          <div className="term-log__empty">
+            {hasErrors ? `No ${activeTab} errors detected.` : "No errors detected."}
+          </div>
+        )}
+        {filteredErrors.map((error, idx) => {
+          const constructionHint = error.type === "syntax" ? getConstructionHint(error.expected, error.message, error.unexpectedToken) : null;
+          // Universal syntax error format: first line = what went wrong; second line = expected token(s) from CFG (always shown in bar)
+          const lines = error.message.split(/\n/).map((s) => s.trim()).filter(Boolean);
+          const mainMessage = lines[0] || error.message;
+          const expectedLineRaw = lines.find((l) => /^Expected Token:\s*/i.test(l) || /^Expected:\s*/i.test(l));
+          const expectedTokenLine = expectedLineRaw
+            ? expectedLineRaw.replace(/^Expected:\s*/i, "Expected Token: ")
+            : null;
+          const showInlineLocation = mainMessage.indexOf("(line ") === -1 && error.type !== "lexical" && error.line !== undefined && error.column !== undefined && error.line > 0 && error.column > 0;
 
-      <div className="term-input-row">
-        <span className="term-prompt">{prompt}$</span>
-        <input
-          ref={inputRef}
-          className="term-input"
-          value={line}
-          onChange={(e) => setLine(e.target.value)}
-          onKeyDown={onKey}
-          spellCheck={false}
-          autoCapitalize="off"
-          autoCorrect="off"
-          autoComplete="off"
-        />
+          // Extract location pattern from message if it's embedded: "(line X, col Y)" or "(line X, col Y)"
+          const locationMatch = mainMessage.match(/(\(line\s+\d+,\s*col\s+\d+\))/i);
+          const messageWithoutLocation = locationMatch ? mainMessage.replace(locationMatch[0], "").trim() : mainMessage;
+          const locationText = locationMatch ? locationMatch[1] : null;
+
+          return (
+            <div key={idx} className="error-container">
+              <div className="error-item">
+                <span className={`error-badge error-badge--${error.type}`}>
+                  {error.type.toUpperCase()}
+                </span>
+                <span className="error-message">
+                  {messageWithoutLocation}
+                  {locationText && (
+                    <span className="error-location-inline"> {locationText}</span>
+                  )}
+                  {showInlineLocation && (
+                    <span className="error-location-inline"> (line {error.line}, col {error.column})</span>
+                  )}
+                </span>
+              </div>
+
+              {/* Expected Token bar (design from 2nd image: dark bar, left accent, light pink text) */}
+              {expectedTokenLine && (
+                <div className="error-expected-token-bar">
+                  {expectedTokenLine}
+                </div>
+              )}
+              
+              {/* Show expected delimiter for lexical errors (reserved words) */}
+              {error.type === "lexical" && error.expectedDelimiter && (
+                <div className="error-details">
+                  <div className="error-detail-line">{error.expectedDelimiter}</div>
+                </div>
+              )}
+              
+              {/* Show construction hint only when we don't already show Expected Token bar (avoid 3rd redundant line) */}
+              {constructionHint && !expectedTokenLine && (
+                <div className="error-hint">
+                  {constructionHint}
+                </div>
+              )}
+              
+              {renderKeywordSuggestions(error.message)}
+              {renderSymbolSuggestions(error.message)}
+            </div>
+          );
+        })}
+        {/* Show prompt to resolve lexical errors first before syntax analysis */}
+        {hasLexicalErrors && activeTab === "syntax" && (
+          <div className="error-container">
+            <div className="error-item">
+              <span className="error-badge error-badge--syntax">SYNTAX</span>
+              <span className="error-message">Lexical errors detected. Resolve them before syntax analysis.</span>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
-}
-
-/* minimal shell-style splitter: keeps quoted groups */
-function splitArgs(s: string): string[] {
-  const out: string[] = [];
-  let buf = "",
-    q: "'" | '"' | null = null;
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i];
-    if (q) {
-      if (c === q) q = null;
-      else buf += c;
-      continue;
-    }
-    if (c === "'" || c === '"') {
-      q = c;
-      continue;
-    }
-    if (/\s/.test(c)) {
-      if (buf) {
-        out.push(buf);
-        buf = "";
-      }
-      continue;
-    }
-    buf += c;
-  }
-  if (buf) out.push(buf);
-  return out;
 }

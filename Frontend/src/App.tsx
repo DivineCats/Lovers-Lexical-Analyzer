@@ -1,15 +1,13 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Header from "./components/Header";
 import Editor, { type FileTab } from "./components/Editor";
 import TokenTable from "./components/TokenTable";
-import Terminal, {
-  type Command,
-  type ValidationResult,
-} from "./components/Terminals";
+import Terminal, { type ValidationResult } from "./components/Terminals";
 import "./App.css";
 
 type TokenRow = { lexeme: string; token: string; tokenType: string };
 type TokenStatus = "idle" | "loading" | "ready" | "error";
+type LexResult = { rows: TokenRow[]; hasLexError: boolean };
 
 const TOKEN_STATUS_LABEL: Record<TokenStatus, string> = {
   idle: "Idle",
@@ -28,6 +26,17 @@ const DEFAULT_FILE: FileTab = {
   name: "main.love",
   content: DEFAULT_SOURCE,
 };
+
+const EMPTY_SOURCE_MESSAGE = "A main program is needed in order to run.";
+
+function useDebounce<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(id);
+  }, [value, delayMs]);
+  return debounced;
+}
 
 const LEX_ENDPOINT = import.meta.env.VITE_LEX_ENDPOINT?.trim() || "/lex";
 const VALIDATE_ENDPOINT =
@@ -55,21 +64,33 @@ export default function App() {
   const [lastRunAt, setLastRunAt] = useState<Date | null>(null);
   const [validation, setValidation] = useState<ValidationResult | null>(null);
   const [lexError, setLexError] = useState<string | null>(null);
+  const [lexErrors, setLexErrors] = useState<string[]>([]);
+  const [backendError, setBackendError] = useState<string | null>(null);
+  const [parserType, setParserType] = useState<"rd" | "parserv2">("parserv2");
+  const [isRunning, setIsRunning] = useState(false);
 
-  const lexSource = useCallback(async (text: string) => {
+  const debouncedSource = useDebounce(source, 450);
+
+  const lexSource = useCallback(async (text: string): Promise<LexResult> => {
     const body = text ?? "";
     if (!body.trim()) {
+      // Empty or whitespace-only source: no lexical error, clear tokens and status.
+      // The syntax stage will report a structured ERR_EMPTY instead.
       setRows([]);
       setStatus("idle");
       setError(null);
       setLexError(null);
+      setLexErrors([]);
+      setBackendError(null);
       setLastRunAt(null);
-      return [];
+      return { rows: [], hasLexError: false };
     }
 
     setStatus("loading");
     setError(null);
     setLexError(null);
+    setLexErrors([]);
+    setBackendError(null);
 
     try {
       const resp = await fetch(LEX_ENDPOINT, {
@@ -84,7 +105,12 @@ export default function App() {
           (payload?.error as string | undefined) ??
           (payload?.message as string | undefined) ??
           raw?.trim();
-        throw new Error(detail || `Request failed (${resp.status})`);
+        const backendMsg = detail || `Request failed (${resp.status})`;
+        setBackendError(backendMsg);
+        setError(backendMsg);
+        setStatus("error");
+        setRows([]);
+        return { rows: [], hasLexError: false };
       }
 
       const nextRows = Array.isArray(payload?.rows)
@@ -93,36 +119,39 @@ export default function App() {
 
       setRows(nextRows);
       setStatus("ready");
-      setLexError(
-        typeof payload?.error === "string" && payload.error.trim()
-          ? (payload.error as string)
-          : null
-      );
+      
+      // Check for multiple errors
+      const hasMultipleErrors = Array.isArray(payload?.errors) && payload.errors.length > 0;
+      const hasSingleError = typeof payload?.error === "string" && payload.error.trim().length > 0;
+      
+      if (hasMultipleErrors) {
+        setLexErrors(payload.errors as string[]);
+        setLexError(payload.errors.join("\n\n"));
+      } else if (hasSingleError) {
+        setLexError(payload.error as string);
+        setLexErrors([payload.error as string]);
+      }
+      
       setLastRunAt(new Date());
-      return nextRows;
+      return { rows: nextRows, hasLexError: hasMultipleErrors || hasSingleError };
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Failed to lex source.";
+      setBackendError(message);
       setError(message);
-      setLexError(message);
+      setLexError(null);
+      setLexErrors([]);
       setStatus("error");
-      return [];
+      return { rows: [], hasLexError: false };
     }
   }, []);
 
-useEffect(() => {
-  const handle = setTimeout(() => {
-    void lexSource(source);
-  }, 400);
-  return () => clearTimeout(handle);
-}, [lexSource, source]);
-
-  const validateSource = useCallback(async (): Promise<ValidationResult> => {
-    const body = source ?? "";
-    if (!body.trim()) {
+  const syntaxSource = useCallback(async (contentOverride?: string): Promise<ValidationResult> => {
+    const body = (contentOverride ?? source ?? "").trim();
+    if (!body) {
       const res: ValidationResult = {
         ok: false,
-        message: "Source is empty. Expected `love main() { ... }`.",
+        message: EMPTY_SOURCE_MESSAGE,
         code: "ERR_EMPTY",
         expected: ["love"],
       };
@@ -134,7 +163,7 @@ useEffect(() => {
       const resp = await fetch(VALIDATE_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ source: body }),
+        body: JSON.stringify({ source: contentOverride ?? source, parser: parserType }),
       });
       const { data: payload, raw } = await parseResponseBody(resp);
 
@@ -153,6 +182,23 @@ useEffect(() => {
         (payload?.error as string | undefined) ??
         raw?.trim() ??
         `Validation failed (HTTP ${resp.status})`;
+
+      const syntaxErrors = Array.isArray(payload?.errors)
+        ? (payload.errors as any[]).map(err => ({
+            ok: Boolean(err?.ok ?? false),
+            message: (err?.message as string) ?? "Syntax error",
+            code: err?.code as string | undefined,
+            token: err?.token as ValidationResult["token"],
+            expected: Array.isArray(err?.expected)
+              ? (err.expected as string[])
+              : undefined,
+            line: err?.line as number | undefined,
+            column: err?.column as number | undefined,
+            found: err?.found as string | undefined,
+            context: err?.context as string | undefined,
+          }))
+        : undefined;
+
       const failure: ValidationResult = {
         ok: false,
         message: failureMessage,
@@ -161,6 +207,10 @@ useEffect(() => {
         expected: Array.isArray(payload?.expected)
           ? (payload.expected as string[])
           : undefined,
+        errors: syntaxErrors,
+        line: payload?.line as number | undefined,
+        column: payload?.column as number | undefined,
+        found: payload?.found as string | undefined,
       };
       setValidation(failure);
       return failure;
@@ -173,33 +223,42 @@ useEffect(() => {
       setValidation(failure);
       return failure;
     }
-  }, [source]);
+  }, [source, parserType]);
 
-  const terminalCommands = useMemo<Record<string, Command>>(
-    () => ({
-      lex: async () => {
-        const tokens = await lexSource(source);
-        if (!tokens.length) return "No tokens produced (empty source?).";
-        const count = tokens.length;
-        return `Lexed ${count} token${count === 1 ? "" : "s"}.`;
-      },
-      validate: async () => {
-        const result = await validateSource();
-        if (!result.ok) {
-          const pos = result.token
-            ? ` at line ${result.token.line}, column ${result.token.column}`
-            : "";
-          const expected =
-            result.expected && result.expected.length
-              ? ` Expected: ${result.expected.join(" ")}`
-              : "";
-          throw new Error(`Syntax error${pos}: ${result.message}.${expected}`);
-        }
-        return result.message ?? "Structure looks valid.";
-      },
-    }),
-    [lexSource, source, validateSource]
-  );
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { hasLexError } = await lexSource(debouncedSource);
+      if (cancelled) return;
+      // If lexing succeeds (or source is empty), always run syntax;
+      // only skip syntax when there are real lexical errors.
+      if (!hasLexError) {
+        await syntaxSource(debouncedSource);
+      } else {
+        setValidation(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [debouncedSource, lexSource, syntaxSource]);
+
+  const hasLexOrSyntaxError =
+    lexErrors.length > 0 || (validation != null && !validation.ok);
+
+  const handleRunCode = useCallback(async () => {
+    setIsRunning(true);
+    try {
+      const { hasLexError } = await lexSource(source);
+      // Run syntax whenever lexing succeeds (or source is empty),
+      // and only clear syntax state on true lexical errors.
+      if (!hasLexError) {
+        await syntaxSource(source);
+      } else {
+        setValidation(null);
+      }
+    } finally {
+      setIsRunning(false);
+    }
+  }, [lexSource, syntaxSource, source]);
 
   const handleEditorChange = useCallback(
     (files: FileTab[], activeId: string) => {
@@ -213,7 +272,23 @@ useEffect(() => {
     <>
       <Header
         label="main.love"
-        right={<span className={`status status--${status}`}>{TOKEN_STATUS_LABEL[status]}</span>}
+        right={
+          <div className="header-actions">
+            <button
+              onClick={handleRunCode}
+              disabled={isRunning || hasLexOrSyntaxError}
+              className={[
+                "run-button",
+                (isRunning || hasLexOrSyntaxError) ? "run-button--disabled" : "",
+                hasLexOrSyntaxError ? "run-button--error" : "",
+              ].filter(Boolean).join(" ")}
+            >
+              {isRunning ? "Running..." : "▶ Run"}
+            </button>
+
+            <span className={`status status--${status}`} title={TOKEN_STATUS_LABEL[status]} aria-label={TOKEN_STATUS_LABEL[status]} />
+          </div>
+        }
       />
       <main className="app">
         <section className="panel panel--editor">
@@ -224,10 +299,10 @@ useEffect(() => {
         </section>
         <section className="panel panel--terminal">
           <Terminal
-            prompt="lover"
-            commands={terminalCommands}
             validation={validation}
             lexError={lexError}
+            lexErrors={lexErrors}
+            backendError={backendError}
           />
         </section>
       </main>

@@ -143,7 +143,7 @@ def _follow_sets(nonterms: Set[Symbol], first: Dict[Symbol, Set[Symbol]]) -> Dic
 
 
 def build_parsing_table() -> ParsingTable:
-    """
+    r"""
     Build the LL(1) parsing table M[A, a] from the CFG in PRODUCTION_LIST.
 
     For each production A → α:

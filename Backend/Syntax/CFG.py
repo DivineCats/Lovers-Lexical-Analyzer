@@ -185,6 +185,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     338: ("<rant_array_lit_list>", ["<rant_array_elem>", "<more_rant_array_lit>"]),
     339: ("<rant_array_elem>", ["rant_lit"]),
     340: ("<rant_array_elem>", ["id"]),
+    435: ("<rant_array_elem>", ["{", "<rant_array_lit_list>", "}"]),
     341: ("<more_rant_array_lit>", [",", "<rant_array_elem>", "<more_rant_array_lit>"]),
     342: ("<more_rant_array_lit>", ["λ"]),
     # DEAR: dear_lit, id, or -dear_lit
@@ -195,6 +196,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     346: ("<dear_array_elem>", ["dear_lit"]),
     347: ("<dear_array_elem>", ["id"]),
     348: ("<dear_array_elem>", ["-", "dear_lit"]),
+    433: ("<dear_array_elem>", ["{", "<dear_array_lit_list>", "}"]),
     349: ("<more_dear_array_lit>", [",", "<dear_array_elem>", "<more_dear_array_lit>"]),
     350: ("<more_dear_array_lit>", ["λ"]),
     # DEAREST: dearest_lit, dear_lit, id, -dearest_lit, -dear_lit
@@ -206,6 +208,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     355: ("<dearest_array_elem>", ["dear_lit"]),
     356: ("<dearest_array_elem>", ["id"]),
     357: ("<dearest_array_elem>", ["-", "<dearest_neg_lit>"]),
+    434: ("<dearest_array_elem>", ["{", "<dearest_array_lit_list>", "}"]),
     358: ("<dearest_neg_lit>", ["dearest_lit"]),
     359: ("<dearest_neg_lit>", ["dear_lit"]),
     360: ("<more_dearest_array_lit>", [",", "<dearest_array_elem>", "<more_dearest_array_lit>"]),
@@ -218,6 +221,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     365: ("<status_array_elem>", ["greenflag"]),
     366: ("<status_array_elem>", ["redflag"]),
     367: ("<status_array_elem>", ["id"]),
+    436: ("<status_array_elem>", ["{", "<status_array_lit_list>", "}"]),
     368: ("<more_status_array_lit>", [",", "<status_array_elem>", "<more_status_array_lit>"]),
     369: ("<more_status_array_lit>", ["λ"]),
     # Type-specific array assign (optional = source)

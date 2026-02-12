@@ -185,6 +185,9 @@ def initialize_parser():
 # Tokens that are shown quoted in expected-token messages
 _DELIMITER_TOKENS = frozenset(['(', ')', '{', '}', '[', ']', ';', ',', ':'])
 
+# Closing delimiters and their matching open (for context-aware expected set)
+_CLOSING_TO_OPEN = {')': '(', ']': '[', '}': '{'}
+
 # Epsilon production as stored in the parsing table (matches ll1_parsing_table)
 _EPSILON_RULE = ['null']
 
@@ -192,6 +195,28 @@ _EPSILON_RULE = ['null']
 def _is_epsilon_rule(rule) -> bool:
     """True if the production RHS is epsilon (null or λ)."""
     return rule == _EPSILON_RULE or rule == ['λ']
+
+
+def _pending_opens_in_stack(remaining_stack: list) -> set:
+    """
+    Return the set of opening delimiters that are still pending (unmatched) in
+    the remaining stack. Only then is it valid to suggest the matching closer.
+    """
+    pending = set()
+    open_count = {'(': 0, '[': 0, '{': 0}
+    close_count = {')': 0, ']': 0, '}': 0}
+    for sym in remaining_stack:
+        if sym in open_count:
+            open_count[sym] += 1
+        if sym in close_count:
+            close_count[sym] += 1
+    if open_count['('] > close_count[')']:
+        pending.add('(')
+    if open_count['['] > close_count[']']:
+        pending.add('[')
+    if open_count['{'] > close_count['}']:
+        pending.add('{')
+    return pending
 
 
 def get_all_expected_terminals(remaining_stack, parsing_table):
@@ -206,6 +231,9 @@ def get_all_expected_terminals(remaining_stack, parsing_table):
         (parsing_table[nt].keys()). If the non-terminal has an ε production,
         'see through' and recursively check the next symbol on the stack.
     - Returns a set of terminal strings (e.g. {'+', '-', 'id'}), not non-terminal names.
+    - Closing delimiters ')', ']', '}' are only included if the matching
+      '(', '[', '{' appears (unmatched) in the remaining stack, so we never
+      suggest "expected ')'" when there is no open parenthesis.
     """
     if not remaining_stack:
         return set()
@@ -216,11 +244,22 @@ def get_all_expected_terminals(remaining_stack, parsing_table):
         # Terminal: add it and stop this branch
         return {top}
     # Non-terminal: collect all lookahead terminals that trigger a rule
-    expected = set(parsing_table[top].keys())
+    raw_expected = set(parsing_table[top].keys())
     has_epsilon = any(_is_epsilon_rule(rule) for rule in parsing_table[top].values())
     if has_epsilon and len(remaining_stack) > 1:
         # See through ε and recurse on the rest of the stack
-        expected |= get_all_expected_terminals(remaining_stack[1:], parsing_table)
+        raw_expected |= get_all_expected_terminals(remaining_stack[1:], parsing_table)
+    # Only suggest closing delimiters when we're actually inside the matching open,
+    # or when that closer is on the stack (parser already consumed the open and is waiting to match it).
+    pending_opens = _pending_opens_in_stack(remaining_stack)
+    closers_on_stack = {sym for sym in remaining_stack if sym in _CLOSING_TO_OPEN}
+    expected = set()
+    for t in raw_expected:
+        if t in _CLOSING_TO_OPEN:
+            if _CLOSING_TO_OPEN[t] in pending_opens or t in closers_on_stack:
+                expected.add(t)
+        else:
+            expected.add(t)
     return expected
 
 

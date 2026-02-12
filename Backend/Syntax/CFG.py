@@ -479,8 +479,12 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     # ==========================================
     # TAILORED EXPRESSIONS (C++ MIMIC)
     # ==========================================
-    # A. INTEGER (dear) - Math + Bitwise
-    279: ("<dear_expr>", ["<dear_term>", "<dear_next>"]),
+    # A. INTEGER (dear) - Math + Bitwise; allow id assign_ops expr (C++ style) in expression
+    279: ("<dear_expr>", ["id", "<dear_expr_id_tail>"]),
+    570: ("<dear_expr>", ["<dear_term_not_id>", "<dear_next>"]),
+    571: ("<dear_expr_id_tail>", ["<assign_ops>", "<dear_expr>"]),
+    572: ("<dear_expr_id_tail>", ["<factor_tail>", "<dear_tail_after_factor>"]),
+    573: ("<dear_tail_after_factor>", ["<dear_term_next>", "<dear_next>"]),
     280: ("<dear_next>", ["+", "<dear_term>", "<dear_next>"]),
     281: ("<dear_next>", ["-", "<dear_term>", "<dear_next>"]),
     282: ("<dear_next>", ["<<", "<dear_term>", "<dear_next>"]),
@@ -505,8 +509,22 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     567: ("<dear_factor>", ["--", "id"]),
    
 
-    # B. FLOAT (dearest) - Same arithmetic as dear: +, -, *, /, %, <<, >>
-    299: ("<dearest_expr>", ["<dearest_term>", "<dearest_next>"]),
+    # B. FLOAT (dearest) - Same arithmetic as dear; allow id assign_ops expr in expression
+    299: ("<dearest_expr>", ["id", "<dearest_expr_id_tail>"]),
+    576: ("<dearest_expr>", ["<dearest_term_not_id>", "<dearest_next>"]),
+    577: ("<dearest_expr_id_tail>", ["<assign_ops>", "<dearest_expr>"]),
+    578: ("<dearest_expr_id_tail>", ["<factor_tail>", "<dearest_tail_after_factor>"]),
+    579: ("<dearest_tail_after_factor>", ["<dearest_term_next>", "<dearest_next>"]),
+    580: ("<dearest_term_not_id>", ["<dearest_factor_not_id>", "<dearest_term_next>"]),
+    581: ("<dearest_factor_not_id>", ["(", "<dearest_expr>", ")"]),
+    582: ("<dearest_factor_not_id>", ["dearest_lit"]),
+    583: ("<dearest_factor_not_id>", ["dear_lit"]),
+    584: ("<dearest_factor_not_id>", ["greenflag"]),
+    585: ("<dearest_factor_not_id>", ["redflag"]),
+    586: ("<dearest_factor_not_id>", ["-", "<dearest_factor_not_id>"]),
+    587: ("<dearest_factor_not_id>", ["+", "<dearest_factor_not_id>"]),
+    588: ("<dearest_factor_not_id>", ["++", "id"]),
+    589: ("<dearest_factor_not_id>", ["--", "id"]),
     300: ("<dearest_next>", ["+", "<dearest_term>", "<dearest_next>"]),
     301: ("<dearest_next>", ["-", "<dearest_term>", "<dearest_next>"]),
 
@@ -560,6 +578,8 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     447: ("<dear_factor_not_id>", ["redflag"]),
     448: ("<dear_factor_not_id>", ["-", "<dear_factor_not_id>"]),
     449: ("<dear_factor_not_id>", ["+", "<dear_factor_not_id>"]),
+    574: ("<dear_factor_not_id>", ["++", "id"]),
+    575: ("<dear_factor_not_id>", ["--", "id"]),
     329: ("<status_int_compare>", ["<dear_expr_not_id>", "<status_int_compare_next>"]),
     330: ("<status_int_compare_next>", ["<rel_op>", "<dear_expr>"]),
     331: ("<status_int_compare_next>", ["λ"]),

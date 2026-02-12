@@ -158,7 +158,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     # 2. FUNCTIONS & LOCAL DECLARATIONS (STRICT TYPED)
     # ==========================================
     46: ("<body_func>", ["<local_decl_list>", "<statements>"]),
-    437: ("<typed_func_body>", ["<local_decl_list>", "<statements>", "<comeback_state>"]),
+    437: ("<typed_func_body>", ["<local_decl_list>", "<statements>"]),
     47: ("<local_decl_list>", ["<local_decl>", "<local_decl_list>"]),
     48: ("<local_decl_list>", ["λ"]),
     49: ("<local_decl>", ["dear", "id", "<dear_tail>"]),

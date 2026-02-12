@@ -46,8 +46,8 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     406: ("<const_decl>", ["rant", "id", "=", "<rant_expr>", ";"]),
     407: ("<const_decl>", ["status", "id", "=", "<status_lit>", ";"]),
 
-    # A. DEAR (Integer) - Assignment RHS supports full expression (logical, relational, arithmetic)
-    14: ("<dear_tail>", ["=", "<assign_rhs_expr>", "<dear_multi>", ";"]),
+    # A. DEAR (Integer) - Uses <dear_expr> (arithmetic + bitwise, no logic/relational)
+    14: ("<dear_tail>", ["=", "<dear_expr>", "<dear_multi>", ";"]),
     15: ("<dear_tail>", ["<dear_multi>", ";"]),
     16: ("<dear_tail>", ["[", "<dear_array_after_lbracket>"]),
     380: ("<dear_array_after_lbracket>", ["]", "<dear_array_empty_dims_tail>"]),
@@ -58,7 +58,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     413: ("<dear_array_dim_tail>", ["<dear_array_assign>", "<dear_multi>", ";"]),
     17: ("<dear_multi>", [",", "id", "<dear_init_opt>", "<dear_multi>"]),
     18: ("<dear_multi>", ["λ"]),
-    19: ("<dear_init_opt>", ["=", "<assign_rhs_expr>"]),
+    19: ("<dear_init_opt>", ["=", "<dear_expr>"]),
     20: ("<dear_init_opt>", ["λ"]),
 
     # B. DEAREST (Float) - Uses <dearest_expr> (No %, bitwise). Array size = <dear_expr>

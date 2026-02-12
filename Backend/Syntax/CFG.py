@@ -496,11 +496,13 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     292: ("<dear_term_next>", ["λ"]),
     293: ("<dear_factor>", ["(", "<dear_expr>", ")"]),
     294: ("<dear_factor>", ["dear_lit"]),
-    295: ("<dear_factor>", ["id"]),
+    295: ("<dear_factor>", ["id", "<factor_tail>"]),
     408: ("<dear_factor>", ["greenflag"]),
     409: ("<dear_factor>", ["redflag"]),
     296: ("<dear_factor>", ["-", "<dear_factor>"]),
     297: ("<dear_factor>", ["+", "<dear_factor>"]),
+    566: ("<dear_factor>", ["++", "id"]),
+    567: ("<dear_factor>", ["--", "id"]),
    
 
     # B. FLOAT (dearest) - Same arithmetic as dear: +, -, *, /, %, <<, >>
@@ -515,11 +517,13 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     306: ("<dearest_term_next>", ["λ"]),
     307: ("<dearest_factor>", ["(", "<dearest_expr>", ")"]),
     308: ("<dearest_factor>", ["dearest_lit"]),
-    309: ("<dearest_factor>", ["id"]),
+    309: ("<dearest_factor>", ["id", "<factor_tail>"]),
     392: ("<dearest_factor>", ["dear_lit"]),
     410: ("<dearest_factor>", ["greenflag"]),
     411: ("<dearest_factor>", ["redflag"]),
     310: ("<dearest_factor>", ["-", "<dearest_factor>"]),
+    568: ("<dearest_factor>", ["++", "id"]),
+    569: ("<dearest_factor>", ["--", "id"]),
 
     # C. STRING (rant) - Concat only
     311: ("<rant_expr>", ["<rant_term>", "<rant_next>"]),

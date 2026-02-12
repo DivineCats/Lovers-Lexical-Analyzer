@@ -164,8 +164,8 @@ def normalize_token(token_kind: str) -> str:
     return token_kind.lower()
 
 
-# Production table (CFG): CFG.py. LL(1) table: FIRST_FOLLOW (ll1_parsing_table.py)
-from Backend.Syntax.ll1_parsing_table import build_parsing_table
+# Production table (CFG): CFG.py. LL(1) table: First_Follow.py
+from Backend.Syntax.First_Follow import build_parsing_table
 
 # Global parsing table
 _parsing_table = None
@@ -189,7 +189,7 @@ _DELIMITER_TOKENS = frozenset(['(', ')', '{', '}', '[', ']', ';', ',', ':'])
 # Closing delimiters and their matching open (for context-aware expected set)
 _CLOSING_TO_OPEN = {')': '(', ']': '[', '}': '{'}
 
-# Epsilon production as stored in the parsing table (matches ll1_parsing_table)
+# Epsilon production as stored in the parsing table (matches First_Follow)
 _EPSILON_RULE = ['null']
 
 

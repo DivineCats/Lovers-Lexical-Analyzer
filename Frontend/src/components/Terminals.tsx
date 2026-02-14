@@ -51,6 +51,7 @@ export type ErrorItem = {
 };
 
 type Props = {
+  source?: string | null;
   validation?: ValidationResult | null;
   lexError?: string | null;
   lexErrors?: string[];
@@ -59,7 +60,7 @@ type Props = {
 
 type TabType = "lexical" | "syntax" | "semantic";
 
-export default function Terminal({ validation = null, lexError = null, lexErrors = [], backendError = null }: Props) {
+export default function Terminal({ source = null, validation = null, lexError = null, lexErrors = [], backendError = null }: Props) {
   const [activeTab, setActiveTab] = useState<TabType>("lexical");
 
   // Auto-switch to first tab that has errors: lexical first, then syntax if no lexical
@@ -243,8 +244,18 @@ export default function Terminal({ validation = null, lexError = null, lexErrors
           const messageWithoutLocation = locationMatch ? mainMessage.replace(locationMatch[0], "").trim() : mainMessage;
           const locationText = locationMatch ? locationMatch[1] : null;
 
+          // Code snippet: show offending line with caret when we have source + line/column
+          const sourceLines = source ? source.split(/\r?\n/) : [];
+          const errorLineContent = error.line != null && error.line >= 1 && error.line <= sourceLines.length
+            ? sourceLines[error.line - 1]
+            : null;
+          const caretColumn = (error.column != null && error.column >= 1 && errorLineContent != null)
+            ? Math.min(error.column - 1, errorLineContent.length)
+            : null;
+          const showCodeSnippet = errorLineContent != null && caretColumn != null;
+
           return (
-            <div key={idx} className="error-container">
+            <div key={idx} className={`error-container${error.type === "lexical" ? " error-container--lexical" : ""}`}>
               <div className="error-item">
                 <span className={`error-badge error-badge--${error.type}`}>
                   {error.type.toUpperCase()}
@@ -259,6 +270,22 @@ export default function Terminal({ validation = null, lexError = null, lexErrors
                   )}
                 </span>
               </div>
+
+              {/* Middle: code snippet with line number and caret pointing to error */}
+              {showCodeSnippet && (
+                <div className="error-code-snippet">
+                  <div className="error-code-snippet-line">
+                    <span className="error-code-line-num">{error.line}</span>
+                    <span className="error-code-line">{errorLineContent}</span>
+                  </div>
+                  <div className="error-code-snippet-caret">
+                    <span className="error-code-line-num" aria-hidden></span>
+                    <span className="error-code-caret-line">
+                      {" ".repeat(caretColumn)}^
+                    </span>
+                  </div>
+                </div>
+              )}
 
               {/* Expected Token bar (design from 2nd image: dark bar, left accent, light pink text) */}
               {expectedTokenLine && (

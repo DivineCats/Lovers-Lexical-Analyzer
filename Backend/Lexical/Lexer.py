@@ -172,6 +172,10 @@ class Lexer:
                 if nxt == "-" or (nxt and nxt.isdigit()):
                     # Emit single MINUS; next iteration will handle the rest
                     pass
+                elif tokens and tokens[-1].kind in ("RPAREN", "RBRACKET"):
+                    # (value)--id: emit two MINUS so grammar parses as (value) - - id
+                    tokens.append(Token("MINUS", "-", line=start_line, column=start_col))
+                    return
                 else:
                     self._advance()
                     self._validate_symbol_follow(two_char, self.line, self.column)
@@ -642,6 +646,13 @@ class Lexer:
                 inner = "".join(content_chars)
                 nxt = self._peek()
                 if nxt not in STRING_DELIMS:
+                    # Stray quote (e.g. "hello""): report once, consume it, return the string token.
+                    if nxt == '"':
+                        self._add_lexical_error(
+                            f"Invalid delimiter after string literal at {line}:{self.column}\n\nExpected delimiter: {self._format_expected(STRING_DELIMS)}",
+                        )
+                        self._advance()
+                        return Token("rant_lit", lexeme, literal=inner, line=line, column=col)
                     raise LexerError(
                         f"Invalid delimiter after string literal at {line}:{self.column}\n\nExpected delimiter: {self._format_expected(STRING_DELIMS)}",
                         self._partial_tokens,

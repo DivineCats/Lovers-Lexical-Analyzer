@@ -158,6 +158,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     # 2. FUNCTIONS & LOCAL DECLARATIONS (STRICT TYPED)
     # ==========================================
     46: ("<body_func>", ["<local_decl_list>", "<statements>"]),
+    610: ("<phase_body>", ["<local_decl_list>", "<phase_statements>"]),
     437: ("<typed_func_body>", ["<local_decl_list>", "<statements>", "<comeback_state>"]),
     47: ("<local_decl_list>", ["<local_decl>", "<local_decl_list>"]),
     48: ("<local_decl_list>", ["λ"]),
@@ -307,6 +308,18 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     438: ("<statements>", ["<local_decl>", "<statements>"]),  # declaration anywhere
     100: ("<statements>", ["λ"]),
 
+    # Phase/case body: statements without breakup (for choose phase/bareminimum)
+    611: ("<phase_statements>", ["id", "<id_suffix>", "<phase_statements>"]),
+    612: ("<phase_statements>", ["<input_state>", "<phase_statements>"]),
+    613: ("<phase_statements>", ["<output_state>", "<phase_statements>"]),
+    614: ("<phase_statements>", ["<conditional_state>", "<phase_statements>"]),
+    615: ("<phase_statements>", ["<loop_state>", "<phase_statements>"]),
+    616: ("<phase_statements>", ["<comeback_state>", "<phase_statements>"]),
+    617: ("<phase_statements>", ["<choose_state>", "<phase_statements>"]),
+    618: ("<phase_statements>", ["<unary_state>", "<phase_statements>"]),
+    619: ("<phase_statements>", ["<local_decl>", "<phase_statements>"]),
+    620: ("<phase_statements>", ["λ"]),
+
     # ==========================================
     # 7. ID SUFFIXES & UNARY
     # ==========================================
@@ -382,11 +395,11 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     439: ("<for_ud>", ["<unary_ops>", "id"]),
 
     149: ("<choose_state>", ["choose", "(", "<expr>", ")", "{", "<phase_lst>", "<bareminimum_opt>", "}"]),
-    150: ("<phase_lst>", ["phase", "<choose_const>", ":", "<body_func>", "breakup", ";", "<phase_lst_next>"]),
+    150: ("<phase_lst>", ["phase", "<choose_const>", ":", "<phase_body>", "breakup", ";", "<phase_lst_next>"]),
     151: ("<phase_lst_next>", ["<phase_lst>"]),
     152: ("<phase_lst_next>", ["λ"]),
     153: ("<choose_const>", ["dear_lit"]),
-    154: ("<bareminimum_opt>", ["bareminimum", ":", "<body_func>", "breakup", ";"]),
+    154: ("<bareminimum_opt>", ["bareminimum", ":", "<phase_body>", "breakup", ";"]),
     155: ("<bareminimum_opt>", ["λ"]),
 
     # ==========================================

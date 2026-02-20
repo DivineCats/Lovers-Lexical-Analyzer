@@ -451,6 +451,8 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     190: ("<factor>", ["+", "<factor>"]),
     191: ("<factor>", ["++", "id"]),
     192: ("<factor>", ["--", "id"]),
+    # Logical NOT in general expr (forever/while/choose conditions, etc.)
+    621: ("<factor>", ["!", "<factor>"]),
 
     193: ("<factor_tail>", ["[", "<array_index_expr>", "]", "<factor_tail>"]),
     194: ("<factor_tail>", ["(", "<arguments>", ")"]),

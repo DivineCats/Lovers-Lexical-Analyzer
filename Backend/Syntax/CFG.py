@@ -30,7 +30,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     8: ("<top_decl>", ["boundaries", "id", "{", "<boundaries_decls_opt>", "}"]),
     9: ("<top_decl>", ["avoidant", "id", "(", "<parameter>", ")", "{", "<body_func>", "}"]),
 
-    # Return-type functions: type id ( parameter ) { typed_func_body } (must end with comeback)
+    # Return-type functions: type id ( parameter ) { typed_func_body } (semantic: at least one comeback)
     218: ("<dear_after_id>", ["(", "<parameter>", ")", "{", "<typed_func_body>", "}"]),
     219: ("<dear_after_id>", ["<dear_tail>"]),
     220: ("<dearest_after_id>", ["(", "<parameter>", ")", "{", "<typed_func_body>", "}"]),
@@ -159,7 +159,7 @@ PRODUCTION_LIST: Dict[int, Tuple[str, List[str]]] = {
     # ==========================================
     46: ("<body_func>", ["<local_decl_list>", "<statements>"]),
     610: ("<phase_body>", ["<local_decl_list>", "<phase_statements>"]),
-    437: ("<typed_func_body>", ["<local_decl_list>", "<statements>", "<comeback_state>"]),
+    437: ("<typed_func_body>", ["<local_decl_list>", "<statements>"]),
     47: ("<local_decl_list>", ["<local_decl>", "<local_decl_list>"]),
     48: ("<local_decl_list>", ["λ"]),
     49: ("<local_decl>", ["dear", "id", "<dear_tail>"]),

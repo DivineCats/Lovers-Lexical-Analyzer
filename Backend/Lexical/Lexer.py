@@ -168,19 +168,14 @@ class Lexer:
         if two_char in MULTI_CHAR_OPERATORS:
             # Treat "--" as OP_DEC only when not followed by '-' or digit (so --- and --5 are minus/negation)
             if two_char == "--":
-                nxt = self._peek_next()
-                if nxt == "-" or (nxt and nxt.isdigit()) or (nxt and self._is_identifier_start(nxt)):
-                    # Emit single MINUS; next iteration will handle the rest (so ---a = three unary minuses)
-                    pass
-                elif tokens and tokens[-1].kind in ("RPAREN", "RBRACKET"):
-                    # (value)--id: emit two MINUS so grammar parses as (value) - - id
+                # Maximal munch: treat "--" as OP_DEC (decrement). Exception: after ) or ] emit two MINUS so (value)-- id = minus minus.
+                if tokens and tokens[-1].kind in ("RPAREN", "RBRACKET"):
                     tokens.append(Token("MINUS", "-", line=start_line, column=start_col))
                     return
-                else:
-                    self._advance()
-                    self._validate_symbol_follow(two_char, self.line, self.column)
-                    tokens.append(Token(MULTI_CHAR_OPERATORS[two_char], two_char, line=start_line, column=start_col))
-                    return
+                self._advance()
+                self._validate_symbol_follow(two_char, self.line, self.column)
+                tokens.append(Token(MULTI_CHAR_OPERATORS[two_char], two_char, line=start_line, column=start_col))
+                return
             else:
                 self._advance()
                 self._validate_symbol_follow(two_char, self.line, self.column)

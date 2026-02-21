@@ -169,8 +169,8 @@ class Lexer:
             # Treat "--" as OP_DEC only when not followed by '-' or digit (so --- and --5 are minus/negation)
             if two_char == "--":
                 nxt = self._peek_next()
-                if nxt == "-" or (nxt and nxt.isdigit()):
-                    # Emit single MINUS; next iteration will handle the rest
+                if nxt == "-" or (nxt and nxt.isdigit()) or (nxt and self._is_identifier_start(nxt)):
+                    # Emit single MINUS; next iteration will handle the rest (so ---a = three unary minuses)
                     pass
                 elif tokens and tokens[-1].kind in ("RPAREN", "RBRACKET"):
                     # (value)--id: emit two MINUS so grammar parses as (value) - - id

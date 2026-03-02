@@ -351,8 +351,9 @@ def parse(token_list=None, build_ast=False):
         last_kind = last_token.kind if hasattr(last_token, 'kind') else (last_token[0] if isinstance(last_token, tuple) else None)
         if last_kind != "EOF":
             from Backend.Lexical.Lexer import Token
-            eof_line = last_token.line if hasattr(last_token, 'line') else (last_token[-2] if isinstance(last_token, tuple) and len(last_token) >= 3 else 1)
-            eof_token = Token(kind="EOF", lexeme="", line=eof_line, column=1)
+            last_line = last_token.line if hasattr(last_token, 'line') else (last_token[-2] if isinstance(last_token, tuple) and len(last_token) >= 3 else 1)
+            # EOF position = after last line (so "unexpected EOF" reports line 3 when last content is on line 2)
+            eof_token = Token(kind="EOF", lexeme="", line=last_line + 1, column=1)
             filtered_tokens.append(eof_token)
     
     token_list = filtered_tokens

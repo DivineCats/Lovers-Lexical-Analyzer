@@ -30,13 +30,13 @@ FOLLOW_SETS: Dict[Symbol, Set[Symbol]] = {}
 
 def _nonterminals() -> Set[Symbol]:
     """All LHS symbols (nonterminals) in the grammar."""
-    return set(lhs for lhs, _ in PRODUCTION_LIST.values())
+    return set(lhs for lhs, _ in PRODUCTION_LIST)
 
 
 def _all_symbols() -> Set[Symbol]:
     """All symbols that appear anywhere on RHS."""
     symbols: Set[Symbol] = set()
-    for _, rhs in PRODUCTION_LIST.items():
+    for _, rhs in PRODUCTION_LIST:
         symbols.update(rhs)
     return symbols
 
@@ -44,7 +44,7 @@ def _all_symbols() -> Set[Symbol]:
 def _terminals(nonterms: Set[Symbol]) -> Set[Symbol]:
     """Symbols that are not nonterminals and not epsilon/null."""
     terms: Set[Symbol] = set()
-    for _, (lhs, rhs) in PRODUCTION_LIST.items():
+    for (lhs, rhs) in PRODUCTION_LIST:
         for sym in rhs:
             if sym not in nonterms and sym not in (EPSILON, "null"):
                 terms.add(sym)
@@ -65,7 +65,7 @@ def _first_sets(nonterms: Set[Symbol], terms: Set[Symbol]) -> Dict[Symbol, Set[S
     changed = True
     while changed:
         changed = False
-        for _, (lhs, rhs) in PRODUCTION_LIST.items():
+        for (lhs, rhs) in PRODUCTION_LIST:
             before = len(first[lhs])
 
             if is_epsilon(rhs):
@@ -112,14 +112,14 @@ def _follow_sets(nonterms: Set[Symbol], first: Dict[Symbol, Set[Symbol]]) -> Dic
     """
     follow: Dict[Symbol, Set[Symbol]] = {nt: set() for nt in nonterms}
 
-    # Start symbol (production 1) gets end marker
-    start_lhs, _ = PRODUCTION_LIST[1]
+    # Start symbol (first production) gets end marker
+    start_lhs, _ = PRODUCTION_LIST[0]
     follow[start_lhs].add(END_MARKER)
 
     changed = True
     while changed:
         changed = False
-        for _, (lhs, rhs) in PRODUCTION_LIST.items():
+        for (lhs, rhs) in PRODUCTION_LIST:
             for i, B in enumerate(rhs):
                 if B not in nonterms:
                     continue
@@ -167,7 +167,7 @@ def build_parsing_table() -> ParsingTable:
 
     table: ParsingTable = {nt: {} for nt in nonterms}
 
-    for _, (lhs, rhs) in PRODUCTION_LIST.items():
+    for (lhs, rhs) in PRODUCTION_LIST:
         first_alpha = _first_of_sequence(rhs, first)
 
         # 1. Terminals in FIRST(α) (except ε)

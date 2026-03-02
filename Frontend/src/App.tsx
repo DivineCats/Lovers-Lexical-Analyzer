@@ -299,6 +299,7 @@ export default function App() {
         </section>
         <section className="panel panel--terminal">
           <Terminal
+            source={source}
             validation={validation}
             lexError={lexError}
             lexErrors={lexErrors}

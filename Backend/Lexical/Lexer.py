@@ -166,10 +166,21 @@ class Lexer:
 
         two_char = ch + self._peek()
         if two_char in MULTI_CHAR_OPERATORS:
-            self._advance()
-            self._validate_symbol_follow(two_char, self.line, self.column)
-            tokens.append(Token(MULTI_CHAR_OPERATORS[two_char], two_char, line=start_line, column=start_col))
-            return
+            # Treat "--" as OP_DEC only when not followed by '-' or digit (so --- and --5 are minus/negation)
+            if two_char == "--":
+                # Maximal munch: treat "--" as OP_DEC (decrement). Exception: after ) or ] emit two MINUS so (value)-- id = minus minus.
+                if tokens and tokens[-1].kind in ("RPAREN", "RBRACKET"):
+                    tokens.append(Token("MINUS", "-", line=start_line, column=start_col))
+                    return
+                self._advance()
+                self._validate_symbol_follow(two_char, self.line, self.column)
+                tokens.append(Token(MULTI_CHAR_OPERATORS[two_char], two_char, line=start_line, column=start_col))
+                return
+            else:
+                self._advance()
+                self._validate_symbol_follow(two_char, self.line, self.column)
+                tokens.append(Token(MULTI_CHAR_OPERATORS[two_char], two_char, line=start_line, column=start_col))
+                return
 
         if ch in SINGLE_CHAR_TOKENS:
             lexeme = ch
@@ -625,37 +636,18 @@ class Lexer:
                 escaped = True
                 continue
             if c == quote:
-                # Support doubled quotes inside strings.
-                if self._peek() == quote:
-                    lookahead = self._peek_next()
-                    # If another character follows the doubled quotes and it is NOT a valid delimiter,
-                    # treat "" as an escaped quote and keep scanning.
-                    if lookahead not in STRING_DELIMS and lookahead not in {"\n", "\0"}:
-                        self._advance()
-                        content_chars.append("\"")
-                        continue
-                    # Otherwise consume the second quote and close the string here.
-                    self._advance()
-                    lexeme = self.source[self.start:self.pos]
-                    inner = "".join(content_chars)
-                    nxt = self._peek()
-                    if nxt not in STRING_DELIMS:
-                        raise LexerError(
-                            f"Invalid delimiter after string literal at {line}:{self.column}\n\nExpected delimiter: {self._format_expected(STRING_DELIMS)}",
-                            self._partial_tokens,
-                        )
-                    return Token("rant_lit", lexeme, literal=inner, line=line, column=col)
-
-                nxt = self._peek()
-                # If the next char is NOT a valid string delimiter, treat this quote as literal
-                # so patterns like "Hello"Love"" keep scanning until a delimiter (e.g., ;)
-                if nxt not in STRING_DELIMS and nxt not in {"\n", "\0"}:
-                    content_chars.append("\"")
-                    continue
+                # First " starts the string; this " ends it.
                 lexeme = self.source[self.start:self.pos]
                 inner = "".join(content_chars)
-                # Validate delimiter after closing quote
+                nxt = self._peek()
                 if nxt not in STRING_DELIMS:
+                    # Stray quote (e.g. "hello""): report once, consume it, return the string token.
+                    if nxt == '"':
+                        self._add_lexical_error(
+                            f"Invalid delimiter after string literal at {line}:{self.column}\n\nExpected delimiter: {self._format_expected(STRING_DELIMS)}",
+                        )
+                        self._advance()
+                        return Token("rant_lit", lexeme, literal=inner, line=line, column=col)
                     raise LexerError(
                         f"Invalid delimiter after string literal at {line}:{self.column}\n\nExpected delimiter: {self._format_expected(STRING_DELIMS)}",
                         self._partial_tokens,

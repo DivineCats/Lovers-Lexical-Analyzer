@@ -1,0 +1,5 @@
+love () {
+  express << "hi";
+  dear x = 2;
+  overshare (x);
+}

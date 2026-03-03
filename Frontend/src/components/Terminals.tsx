@@ -36,6 +36,7 @@ export type ValidationResult = {
   line?: number;
   column?: number;
   found?: string;
+  semanticErrors?: ValidationError[];
 };
 
 export type ErrorItem = {
@@ -66,9 +67,11 @@ export default function Terminal({ source = null, validation = null, lexError = 
   // Auto-switch to first tab that has errors: lexical first, then syntax if no lexical
   useEffect(() => {
     const hasLexical = lexErrors.length > 0 || (lexError != null && lexError.trim() !== "");
-    const hasSyntax = validation != null && !validation.ok;
+    const hasSyntax = validation != null && !validation.ok && validation.code !== "ERR_SEMANTIC";
+    const hasSemantic = validation != null && !validation.ok && validation.code === "ERR_SEMANTIC";
     if (hasLexical) setActiveTab("lexical");
     else if (hasSyntax) setActiveTab("syntax");
+    else if (hasSemantic) setActiveTab("semantic");
   }, [lexErrors.length, lexError, validation]);
 
   // Parse all errors into structured format
@@ -153,7 +156,7 @@ export default function Terminal({ source = null, validation = null, lexError = 
   }
 
   // Process syntax validation errors
-  if (validation && !validation.ok) {
+  if (validation && !validation.ok && validation.code !== "ERR_SEMANTIC") {
     if (validation.errors && validation.errors.length > 0) {
       validation.errors.forEach((err: any) => {
         errors.push({
@@ -176,6 +179,18 @@ export default function Terminal({ source = null, validation = null, lexError = 
         unexpectedToken: (validation as any).found,
       });
     }
+  }
+
+  if (validation?.semanticErrors && validation.semanticErrors.length > 0) {
+    validation.semanticErrors.forEach((err: any) => {
+      errors.push({
+        type: "semantic",
+        message: err.message || "Semantic error",
+        line: err.line,
+        column: err.column,
+        context: err.context,
+      });
+    });
   }
 
   if (backendError) {

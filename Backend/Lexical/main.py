@@ -4,6 +4,7 @@ from flask_cors import CORS
 from Backend.Lexical import Lexer, tokens_as_rows, tokenize_with_errors
 from Backend.Lexical.Lexer import LexerError
 from Backend.Syntax import parse_with_errors_parserv2, create_error_context
+from Backend.Semantic import analyze_semantics
 
 app = Flask(__name__)
 CORS(app, resources={r"/lex": {"origins": "*"}, r"/validate": {"origins": "*"}})
@@ -96,6 +97,17 @@ def validate():
             "expected": syntax_errors[0].expected,
             "errors": errors_list,
             "parser": parser_type  # Include which parser was used
+        }), 200
+
+    semantic_errors = analyze_semantics(tokens)
+    if semantic_errors:
+        semantic_payload = [e.to_dict() for e in semantic_errors]
+        return jsonify({
+            "ok": False,
+            "message": semantic_payload[0]["message"],
+            "code": "ERR_SEMANTIC",
+            "semantic_errors": semantic_payload,
+            "parser": parser_type,
         }), 200
 
     return jsonify({

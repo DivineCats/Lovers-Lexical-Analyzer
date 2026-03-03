@@ -10,6 +10,7 @@ from Backend.Lexical import Lexer, tokenize_with_errors
 from Backend.Lexical.Lexer import LexerError
 from Backend.Syntax import parse_with_errors_parserv2, create_error_context
 from Backend.Syntax.errors import SyntaxError as ParserSyntaxError
+from Backend.Semantic import analyze_semantics
 
 
 def main() -> int:
@@ -74,6 +75,19 @@ def main() -> int:
             print("Parse Tree:")
             print("-" * 40)
             print(tree.pretty())
+
+        print()
+        print("=" * 50)
+        print("Phase 3: Semantic Analysis")
+        print("=" * 50)
+        semantic_errors = analyze_semantics(tokens)
+        if semantic_errors:
+            print("Semantic errors:")
+            for err in semantic_errors:
+                print(f" - {err.message} (line {err.line}, col {err.column})")
+            return 1
+
+        print("Semantic analysis successful!")
         
         return 0
         

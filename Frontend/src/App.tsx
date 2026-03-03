@@ -199,6 +199,16 @@ export default function App() {
           }))
         : undefined;
 
+      const semanticErrors = Array.isArray(payload?.semantic_errors)
+        ? (payload.semantic_errors as any[]).map(err => ({
+            ok: false,
+            message: (err?.message as string) ?? "Semantic error",
+            code: err?.code as string | undefined,
+            line: err?.line as number | undefined,
+            column: err?.column as number | undefined,
+          }))
+        : undefined;
+
       const failure: ValidationResult = {
         ok: false,
         message: failureMessage,
@@ -207,7 +217,8 @@ export default function App() {
         expected: Array.isArray(payload?.expected)
           ? (payload.expected as string[])
           : undefined,
-        errors: syntaxErrors,
+        errors: payload?.code === "ERR_SEMANTIC" ? undefined : syntaxErrors,
+        semanticErrors,
         line: payload?.line as number | undefined,
         column: payload?.column as number | undefined,
         found: payload?.found as string | undefined,

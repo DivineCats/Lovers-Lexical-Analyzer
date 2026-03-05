@@ -162,7 +162,13 @@ class Lexer:
             if tok is not None:
                 tokens.append(tok)
             return
-
+        three_char = ch + self._peek() + self._peek_next()
+        if three_char in MULTI_CHAR_OPERATORS:
+            self._advance()
+            self._advance()
+            self._validate_symbol_follow(three_char, self.line, self.column)
+            tokens.append(Token(MULTI_CHAR_OPERATORS[three_char], three_char, line=start_line, column=start_col))
+            return
 
         two_char = ch + self._peek()
         if two_char in MULTI_CHAR_OPERATORS:

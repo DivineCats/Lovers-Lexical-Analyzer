@@ -38,8 +38,8 @@ Netlify uses `netlify.toml` in the repository root.
 
 Set these in the Netlify site settings:
 
-- `VITE_LEX_ENDPOINT=https://your-railway-backend.up.railway.app/lex`
-- `VITE_VALIDATE_ENDPOINT=https://your-railway-backend.up.railway.app/validate`
+- `VITE_LEX_ENDPOINT=https://lovers-lexical-analyzer-production.up.railway.app/lex`
+- `VITE_VALIDATE_ENDPOINT=https://lovers-lexical-analyzer-production.up.railway.app/validate`
 
 You can copy the template from `Frontend/.env.example`.
 

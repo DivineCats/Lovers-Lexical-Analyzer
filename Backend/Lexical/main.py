@@ -12,6 +12,16 @@ app = Flask(__name__)
 CORS(app, resources={r"/lex": {"origins": "*"}, r"/validate": {"origins": "*"}})
 
 
+@app.get("/")
+def root_health():
+    return jsonify({"ok": True, "service": "lovers-lexical-analyzer"}), 200
+
+
+@app.get("/health")
+def health():
+    return jsonify({"ok": True, "status": "healthy"}), 200
+
+
 @app.get("/compiler")
 def compiler():
     return jsonify({"ok": True}), 200

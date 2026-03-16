@@ -66,7 +66,7 @@ export default function App() {
   const [lexError, setLexError] = useState<string | null>(null);
   const [lexErrors, setLexErrors] = useState<string[]>([]);
   const [backendError, setBackendError] = useState<string | null>(null);
-  const [parserType, setParserType] = useState<"rd" | "parserv2">("parserv2");
+  const [parserType] = useState<"rd" | "parserv2">("parserv2");
   const [isRunning, setIsRunning] = useState(false);
 
   const debouncedSource = useDebounce(source, 450);

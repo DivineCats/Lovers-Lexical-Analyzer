@@ -1,3 +1,5 @@
+import os
+
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
@@ -8,6 +10,11 @@ from Backend.Semantic import analyze_semantics
 
 app = Flask(__name__)
 CORS(app, resources={r"/lex": {"origins": "*"}, r"/validate": {"origins": "*"}})
+
+
+@app.get("/health")
+def health():
+    return jsonify({"ok": True}), 200
 
 @app.post("/lex")
 def lex():
@@ -118,4 +125,6 @@ def validate():
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)  # flip debug=False for production
+    port = int(os.environ.get("PORT", "5000"))
+    debug = os.environ.get("FLASK_DEBUG", "0") == "1"
+    app.run(host="0.0.0.0", port=port, debug=debug)

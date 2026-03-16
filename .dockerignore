@@ -1,0 +1,16 @@
+.git
+.gitignore
+Frontend
+docs
+node_modules
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+*.log
+*.md
+run.bat
+watch_validate.ps1
+temp_*.love
+test_*.py
+*.lovers

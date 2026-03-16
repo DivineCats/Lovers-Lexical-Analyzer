@@ -7,7 +7,7 @@ This project is deployed as two services:
 
 ## Railway backend
 
-Railway uses `nixpacks.toml` and `requirements.txt` in the repository root.
+Railway uses `railway.toml` + `Dockerfile` in the repository root.
 
 ### Backend start command
 
@@ -21,7 +21,7 @@ Railway uses `nixpacks.toml` and `requirements.txt` in the repository root.
 
 1. Create a new Railway project from this repository.
 2. Keep the service root at the repository root.
-3. Railway should detect `nixpacks.toml` and build the Python service.
+3. Railway reads `railway.toml`, builds with `Dockerfile`, and starts Gunicorn.
 4. After deploy, copy the public Railway URL.
 
 ## Netlify frontend

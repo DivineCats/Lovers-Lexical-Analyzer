@@ -29,6 +29,31 @@ const DEFAULT_FILE: FileTab = {
 
 const EMPTY_SOURCE_MESSAGE = "A main program is needed in order to run.";
 
+const API_BASE =
+  import.meta.env.VITE_API_BASE?.trim() ||
+  import.meta.env.VITE_API_BASE_URL?.trim() ||
+  "";
+
+const normalizeEndpoint = (
+  rawValue: string | undefined,
+  fallbackPath: "/lex" | "/validate"
+) => {
+  const value = rawValue?.trim();
+  if (value) {
+    const lower = value.toLowerCase();
+    if (lower.endsWith("/lex") || lower.endsWith("/validate")) {
+      return value;
+    }
+    return `${value.replace(/\/+$/, "")}${fallbackPath}`;
+  }
+
+  if (API_BASE) {
+    return `${API_BASE.replace(/\/+$/, "")}${fallbackPath}`;
+  }
+
+  return fallbackPath;
+};
+
 function useDebounce<T>(value: T, delayMs: number): T {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -38,9 +63,11 @@ function useDebounce<T>(value: T, delayMs: number): T {
   return debounced;
 }
 
-const LEX_ENDPOINT = import.meta.env.VITE_LEX_ENDPOINT?.trim() || "/lex";
-const VALIDATE_ENDPOINT =
-  import.meta.env.VITE_VALIDATE_ENDPOINT?.trim() || "/validate";
+const LEX_ENDPOINT = normalizeEndpoint(import.meta.env.VITE_LEX_ENDPOINT, "/lex");
+const VALIDATE_ENDPOINT = normalizeEndpoint(
+  import.meta.env.VITE_VALIDATE_ENDPOINT,
+  "/validate"
+);
 
 async function parseResponseBody(
   resp: Response

@@ -1,4 +1,4 @@
-import "./tokenTable.css";
+import "./TokenTable.css";
 
 export type TokenRow = {
   lexeme: string;

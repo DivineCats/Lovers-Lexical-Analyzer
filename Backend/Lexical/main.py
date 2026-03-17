@@ -8,6 +8,11 @@ from Backend.Lexical.Lexer import LexerError
 from Backend.Syntax import parse_with_errors_parserv2, create_error_context
 from Backend.Semantic import analyze_semantics
 
+
+
+
+debug = os.environ.get("FLASK_DEBUG", "0") == "1"
+
 app = Flask(__name__)
 CORS(app, resources={r"/lex": {"origins": "*"}, r"/validate": {"origins": "*"}})
 

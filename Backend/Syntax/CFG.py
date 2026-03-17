@@ -63,6 +63,7 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<dear_term_not_id>", ["<dear_factor_not_id>", "<dear_term_next>"]),
     ("<dear_factor>", ["(", "<dear_expr>", ")"]),
     ("<dear_factor>", ["dear_lit"]),
+    ("<dear_factor>", ["dearest_lit"]),
     ("<dear_factor>", ["id", "<factor_tail>"]),
     ("<dear_factor>", ["+", "<dear_factor>"]),
     ("<dear_factor>", ["-", "<dear_factor>"]),
@@ -73,6 +74,7 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<dear_expr_not_id>", ["<dear_term_not_id>", "<dear_next>"]),
     ("<dear_factor_not_id>", ["(", "<dear_expr>", ")"]),
     ("<dear_factor_not_id>", ["dear_lit"]),
+    ("<dear_factor_not_id>", ["dearest_lit"]),
     ("<dear_factor_not_id>", ["greenflag"]),
     ("<dear_factor_not_id>", ["redflag"]),
     ("<dear_factor_not_id>", ["+", "<dear_factor_not_id>"]),
@@ -141,7 +143,7 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<rant_term>", ["<rant_factor>"]),
     ("<rant_factor>", ["(", "<rant_expr>", ")"]),
     ("<rant_factor>", ["rant_lit"]),
-    ("<rant_factor>", ["id"]),
+    ("<rant_factor>", ["id", "<factor_tail>"]),
 
     ("<status_after_id>", ["(", "<parameter>", ")", "{", "<typed_func_body>", "}"]),
     ("<status_after_id>", ["<status_tail>"]),
@@ -190,6 +192,7 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<id_suffix>", ["<assign_ops>", "<assign_values>", ";"]),
     ("<id_suffix>", ["(", "<arguments>", ")", ";"]),
     ("<id_suffix>", ["<unary_ops>", ";"]),
+    ("<id_suffix>", [".", "id", "<id_suffix>"]),
     ("<id_suffix>", ["::", "id", "<id_suffix>"]),
     ("<unary_state>", ["<unary_ops>", "id", ";"]),
     ("<unary_ops>", ["++"]),
@@ -245,6 +248,7 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<rel_expr>", ["<expr_ar>", "<rel_next>"]),
     ("<rel_next>", ["<rel_op>", "<expr_ar>", "<rel_next>"]),
     ("<rel_next>", ["λ"]),
+    ("<rel_op>", ["=="]),
     ("<rel_op>", [".=="]),
     ("<rel_op>", ["!="]),
     ("<rel_op>", ["<"]),
@@ -280,6 +284,7 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<factor_tail>", ["(", "<arguments>", ")"]),
     ("<factor_tail>", ["++"]),
     ("<factor_tail>", ["--"]),
+    ("<factor_tail>", [".", "id", "<factor_tail>"]),
     ("<factor_tail>", ["::", "id", "<factor_tail>"]),
     ("<factor_tail>", ["λ"]),
 
@@ -376,10 +381,10 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<rant_array_after_lbracket>", ["]", "<rant_array_empty_dims_tail>"]),
     ("<rant_array_after_lbracket>", ["<dear_expr>", "]", "<rant_array_dim_tail>"]),
     ("<rant_array_dim_tail>", ["[", "<dear_expr>", "]", "<rant_array_dim_tail>"]),
-    ("<rant_array_dim_tail>", ["<rant_array_assign>", "<rant_multi>"]),
+    ("<rant_array_dim_tail>", ["<rant_array_assign>", "<rant_multi>", ";"]),
     ("<rant_array_empty_dims_tail>", ["[", "]", "<rant_array_empty_dims_tail>"]),
-    ("<rant_array_empty_dims_tail>", [".=", "<rant_array_source>"]),
-    ("<rant_array_empty_dims_tail>", ["=", "<rant_array_source>"]),
+    ("<rant_array_empty_dims_tail>", [".=", "<rant_array_source>", ";"]),
+    ("<rant_array_empty_dims_tail>", ["=", "<rant_array_source>", ";"]),
 
     ("<status_array_source>", ["{", "<status_array_lit_list>", "}"]),
     ("<status_array_lit_list>", ["<status_array_elem>", "<more_status_array_lit>"]),
@@ -404,6 +409,7 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<struct_body_opt>", ["<struct_member>", "<struct_body_opt>"]),
     ("<struct_body_opt>", ["λ"]),
     ("<struct_member>", ["<data_type>", "id", ";"]),
+    ("<struct_member>", ["struct", "id", "id", ";"]),
 ]
 
 

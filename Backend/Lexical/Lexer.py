@@ -397,6 +397,8 @@ class Lexer:
         elif first == 's':
             if length == 6 and value[1] == 't' and value[2] == 'a' and value[3] == 't' and value[4] == 'u' and value[5] == 's':
                 return ("STATUS", "status")
+            elif length == 6 and value[1] == 't' and value[2] == 'r' and value[3] == 'u' and value[4] == 'c' and value[5] == 't':
+                return ("struct", "struct")
         
         # 'w' keywords
         elif first == 'w':

@@ -23,9 +23,18 @@ class ASTNode:
 
 @dataclass
 class Program(ASTNode):
-    """Root node: boundaries_opt global_declaration sub_func love() { body_func }"""
-    namespace: Optional["Namespace"] = None
+    """
+    Root node for Lovers program:
+      <program> -> <top_decls_opt> love ( ) { <body_func> }
+
+    - All top-level declarations before `love` (variables, consts, functions, namespaces)
+      are represented in the lists below.
+    """
+    # All top-level namespaces created via `boundaries id { ... }`
+    namespaces: List["Namespace"] = field(default_factory=list)
+    # Top-level (non-namespace) variable / const declarations before `love`
     global_declarations: List["Declaration"] = field(default_factory=list)
+    # Top-level functions before `love` (both typed and `avoidant`/void)
     sub_functions: List["Function"] = field(default_factory=list)
     main_function: Optional["MainFunction"] = None
 
@@ -214,6 +223,12 @@ class SwitchStatement(Statement):
     expression: "Expression" = None
     cases: List["CaseClause"] = field(default_factory=list)
     default_case: Optional["FunctionBody"] = None
+
+
+@dataclass
+class BreakStatement(Statement):
+    """Break: breakup; (used inside choose/phase/bareminimum bodies conceptually)."""
+    pass
 
 
 @dataclass

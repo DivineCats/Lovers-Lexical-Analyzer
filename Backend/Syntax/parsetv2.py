@@ -109,6 +109,7 @@ def normalize_token(token_kind: str) -> str:
         "SEMICOLON": ";",
         "COMMA": ",",
         "COLON": ":",
+        "DOT": ".",
         "PLUS": "+",
         "MINUS": "-",
         "STAR": "*",
@@ -567,7 +568,7 @@ def parse_with_ast(token_list, source_code=None):
     program = Program(
         line=1,
         column=1,
-        namespace=None,
+        namespaces=[],
         global_declarations=[],
         sub_functions=[],
         main_function=None,

@@ -36,6 +36,57 @@ class SymbolInfo:
     column: int
 
 
+def _collect_struct_types(tokens: List, errors: List[SemanticError]) -> Dict[str, Dict[str, str]]:
+    # ============================================================
+    # === STRUCT TYPE TABLE COLLECTION                         ===
+    # ===                                                     ===
+    # === Scans top-level 'struct' definitions and builds a   ===
+    # === mapping: struct_types[StructName][field] = type     ===
+    # === where 'type' is either a built-in (dear/dearest/    ===
+    # === rant/status) or another struct name for nested      ===
+    # === struct fields.                                      ===
+    # ============================================================
+    struct_types: Dict[str, Dict[str, str]] = {}
+    i = 0
+    while i < len(tokens):
+        if tokens[i].kind != "struct":
+            i += 1
+            continue
+        if i + 2 >= len(tokens) or tokens[i + 1].kind != "id" or tokens[i + 2].kind != "LBRACE":
+            i += 1
+            continue
+
+        struct_name = tokens[i + 1].lexeme
+        i += 3  
+        fields: Dict[str, str] = {}
+
+        while i < len(tokens) and tokens[i].kind != "RBRACE":
+            
+            if tokens[i].kind in TYPE_KEYWORDS:
+                if i + 2 < len(tokens) and tokens[i + 1].kind == "id" and tokens[i + 2].kind == "SEMICOLON":
+                    fields[tokens[i + 1].lexeme] = tokens[i].kind
+                    i += 3
+                    continue
+
+            
+            if tokens[i].kind == "struct":
+                if i + 3 < len(tokens) and tokens[i + 1].kind == "id" and tokens[i + 2].kind == "id" and tokens[i + 3].kind == "SEMICOLON":
+                    fields[tokens[i + 2].lexeme] = tokens[i + 1].lexeme
+                    i += 4
+                    continue
+
+            i += 1
+
+        
+        if i < len(tokens) and tokens[i].kind == "RBRACE":
+            i += 1
+        if i < len(tokens) and tokens[i].kind == "SEMICOLON":
+            i += 1
+
+        struct_types[struct_name] = fields
+
+    return struct_types
+
 def _lookup(scopes: List[Dict[str, SymbolInfo]], name: str) -> Optional[SymbolInfo]:
     for scope in reversed(scopes):
         if name in scope:
@@ -44,7 +95,7 @@ def _lookup(scopes: List[Dict[str, SymbolInfo]], name: str) -> Optional[SymbolIn
 
 
 def _is_numeric(type_name: str) -> bool:
-    return type_name in {"dear", "dearest"}
+    return type_name in {"dear", "dearest", "status"}
 
 
 def _is_assignable(target_type: str, value_type: Optional[str]) -> bool:
@@ -52,7 +103,8 @@ def _is_assignable(target_type: str, value_type: Optional[str]) -> bool:
         return True
     if target_type == value_type:
         return True
-    if target_type == "dearest" and value_type == "dear":
+    
+    if target_type in {"dear", "dearest", "status"} and value_type in {"dear", "dearest", "status"}:
         return True
     return False
 
@@ -62,7 +114,20 @@ def _infer_expression_type(
     scopes: List[Dict[str, SymbolInfo]],
     function_names: set,
     errors: List[SemanticError],
+    struct_types: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> Optional[str]:
+    # ============================================================
+    # === EXPRESSION TYPE INFERENCE                            ===
+    # ===                                                     ===
+    # === Given a flat list of tokens that form an expression,===
+    # === best-effort infer a single resulting type:           ===
+    # ===   - dear/dearest/rant/status from literals and ids   ===
+    # ===   - status when logical/relational operators appear  ===
+    # === Also validates function calls and struct field       ===
+    # === access along the way, reporting semantic errors if   ===
+    # === identifiers/functions/fields are unknown.            ===
+    # ============================================================
+
     if not expr_tokens:
         return None
 
@@ -105,7 +170,41 @@ def _infer_expression_type(
                         column=tok.column,
                     ))
                 else:
-                    observed_types.append(symbol.type_name)
+                    current_type = symbol.type_name
+                    j = i + 1
+                    while (
+                        struct_types is not None
+                        and j + 1 < len(expr_tokens)
+                        and expr_tokens[j].kind == "DOT"
+                        and expr_tokens[j + 1].kind == "id"
+                    ):
+                        field_name = expr_tokens[j + 1].lexeme
+                        if current_type in TYPE_KEYWORDS:
+                            errors.append(SemanticError(
+                                message=f"Type '{current_type}' has no fields (cannot access '{field_name}').",
+                                line=expr_tokens[j].line,
+                                column=expr_tokens[j].column,
+                            ))
+                            break
+                        fields = struct_types.get(current_type)
+                        if fields is None:
+                            errors.append(SemanticError(
+                                message=f"Unknown struct type '{current_type}'.",
+                                line=expr_tokens[j].line,
+                                column=expr_tokens[j].column,
+                            ))
+                            break
+                        if field_name not in fields:
+                            errors.append(SemanticError(
+                                message=f"Struct '{current_type}' has no field '{field_name}'.",
+                                line=expr_tokens[j + 1].line,
+                                column=expr_tokens[j + 1].column,
+                            ))
+                            break
+                        current_type = fields[field_name]
+                        j += 2
+
+                    observed_types.append(current_type)
         i += 1
 
     if not observed_types:
@@ -169,16 +268,39 @@ def analyze_semantics(tokens: List) -> List[SemanticError]:
         return errors
 
     function_names = _collect_function_names(filtered)
+    struct_types = _collect_struct_types(filtered, errors)
 
     scopes: List[Dict[str, SymbolInfo]] = [dict()]
+    
     pending_function_params: Optional[List[Tuple[str, object]]] = None
+    pending_function_return: Optional[str] = None
+    
+    function_return_stack: List[Optional[str]] = [None]
 
     i = 0
     while i < len(filtered):
         tok = filtered[i]
 
+      
+        if tok.kind == "struct" and i + 2 < len(filtered) and filtered[i + 1].kind == "id" and filtered[i + 2].kind == "LBRACE":
+            j = i + 3
+            depth = 1
+            while j < len(filtered) and depth > 0:
+                if filtered[j].kind == "LBRACE":
+                    depth += 1
+                elif filtered[j].kind == "RBRACE":
+                    depth -= 1
+                j += 1
+            
+            if j < len(filtered) and filtered[j].kind == "SEMICOLON":
+                j += 1
+            i = j
+            continue
+
         if tok.kind == "LBRACE":
+           
             scopes.append({})
+            function_return_stack.append(function_return_stack[-1])
             if pending_function_params:
                 for type_name, ident_tok in pending_function_params:
                     current_scope = scopes[-1]
@@ -197,12 +319,16 @@ def analyze_semantics(tokens: List) -> List[SemanticError]:
                             column=ident_tok.column,
                         )
                 pending_function_params = None
+            if pending_function_return is not None:
+                function_return_stack[-1] = pending_function_return
+                pending_function_return = None
             i += 1
             continue
 
         if tok.kind == "RBRACE":
             if len(scopes) > 1:
                 scopes.pop()
+                function_return_stack.pop()
             i += 1
             continue
 
@@ -238,6 +364,8 @@ def analyze_semantics(tokens: List) -> List[SemanticError]:
                             break
                     j += 1
                 pending_function_params = _parse_params(filtered[i + 3 : j])
+               
+                pending_function_return = tok.kind
                 i = j + 1
                 continue
 
@@ -295,7 +423,7 @@ def analyze_semantics(tokens: List) -> List[SemanticError]:
                             break
                         expr_end += 1
 
-                    expr_type = _infer_expression_type(filtered[expr_start:expr_end], scopes, function_names, errors)
+                    expr_type = _infer_expression_type(filtered[expr_start:expr_end], scopes, function_names, errors, struct_types)
                     if not _is_assignable(declared_type, expr_type):
                         errors.append(SemanticError(
                             message=(
@@ -317,7 +445,106 @@ def analyze_semantics(tokens: List) -> List[SemanticError]:
             i = cursor + 1
             continue
 
+        
+        if tok.kind == "struct":
+            if (
+                i + 3 < len(filtered)
+                and filtered[i + 1].kind == "id"
+                and filtered[i + 2].kind == "id"
+                and filtered[i + 3].kind == "SEMICOLON"
+            ):
+                type_name = filtered[i + 1].lexeme
+                var_tok = filtered[i + 2]
+                current_scope = scopes[-1]
+
+                if type_name not in struct_types:
+                    errors.append(SemanticError(
+                        message=f"Unknown struct type '{type_name}'.",
+                        line=filtered[i + 1].line,
+                        column=filtered[i + 1].column,
+                    ))
+
+                if var_tok.lexeme in current_scope:
+                    errors.append(SemanticError(
+                        message=f"Redeclaration of '{var_tok.lexeme}' in the same scope.",
+                        line=var_tok.line,
+                        column=var_tok.column,
+                    ))
+                else:
+                    current_scope[var_tok.lexeme] = SymbolInfo(
+                        name=var_tok.lexeme,
+                        type_name=type_name,
+                        is_const=False,
+                        line=var_tok.line,
+                        column=var_tok.column,
+                    )
+                i += 4
+                continue
+
+        # ============================================================
+        # === RETURN STATEMENT TYPE CHECKING (comeback)             ===
+        # ===                                                       ===
+        # === Uses the current function's declared return type      ===
+        # === (tracked in function_return_stack) and enforces:      ===
+        # ===   - avoidant: comeback must NOT have a value          ===
+        # ===   - dear/dearest/rant/status: comeback MUST have a    ===
+        # ===     value that is assignable to that type.           ===
+        # ============================================================
+        if tok.kind == "comeback":
+            current_return = function_return_stack[-1]
+
+           
+            expr_start = i + 1
+            expr_end = expr_start
+            nest = 0
+            while expr_end < len(filtered):
+                k = filtered[expr_end].kind
+                if k in {"LPAREN", "LBRACKET", "LBRACE"}:
+                    nest += 1
+                elif k in {"RPAREN", "RBRACKET", "RBRACE"}:
+                    nest = max(0, nest - 1)
+                if nest == 0 and k == "SEMICOLON":
+                    break
+                expr_end += 1
+
+            has_expr = expr_start < expr_end
+            expr_type: Optional[str] = None
+            if has_expr:
+                expr_type = _infer_expression_type(filtered[expr_start:expr_end], scopes, function_names, errors, struct_types)
+
+            # Rules:
+            # - avoidant: cannot return a value
+            # - typed (dear/dearest/rant/status): must return a compatible value
+            if current_return == "avoidant":
+                if has_expr:
+                    errors.append(SemanticError(
+                        message="Void function cannot return a value.",
+                        line=tok.line,
+                        column=tok.column,
+                    ))
+            elif current_return in TYPE_KEYWORDS:
+                if not has_expr:
+                    errors.append(SemanticError(
+                        message=f"Function must return a value of type {current_return}, but comeback has no value.",
+                        line=tok.line,
+                        column=tok.column,
+                    ))
+                elif not _is_assignable(current_return, expr_type):
+                    errors.append(SemanticError(
+                        message=f"Type mismatch in return: cannot return {expr_type or 'unknown'} from function of type {current_return}.",
+                        line=tok.line,
+                        column=tok.column,
+                    ))
+            
+
+            i = expr_end + 1
+            continue
+
         if tok.kind == "id":
+            
+            if i > 0 and filtered[i - 1].kind == "DOT":
+                i += 1
+                continue
             next_i = i + 1
 
             if next_i < len(filtered) and filtered[next_i].kind == "LPAREN":
@@ -332,15 +559,57 @@ def analyze_semantics(tokens: List) -> List[SemanticError]:
 
             target_tok = tok
             cursor = next_i
+
+            # ============================================================
+            # === ARRAY INDEX SEMANTIC CHECKS (numeric index allowed)   ===
+            # ===                                                         ===
+            # === Walks all 'id[ ... ]' occurrences for this identifier   ===
+            # === and collects each index expression slice. For every     ===
+            # === slice, we infer its type and ensure it is numerically   ===
+            # === usable: either 'dear' (integer) or 'status' (bool,      ===
+            # === treated C-style as 0/1). Other types (dearest/rant)     ===
+            # === are reported as invalid array indices.                  ===
+            # ============================================================
+            index_slices: List[Tuple[int, int]] = []
             while cursor + 2 < len(filtered) and filtered[cursor].kind == "LBRACKET":
                 bracket_depth = 1
+                index_start = cursor + 1
                 cursor += 1
                 while cursor < len(filtered) and bracket_depth > 0:
                     if filtered[cursor].kind == "LBRACKET":
                         bracket_depth += 1
                     elif filtered[cursor].kind == "RBRACKET":
                         bracket_depth -= 1
+                    if bracket_depth == 0:
+                        # index expression is [index_start:index_end]
+                        index_end = cursor
+                        index_slices.append((index_start, index_end))
+                        break
                     cursor += 1
+                cursor += 1 
+
+           
+            for start_idx, end_idx in index_slices:
+                if start_idx >= end_idx:
+                    continue
+                index_expr_tokens = filtered[start_idx:end_idx]
+                index_type = _infer_expression_type(index_expr_tokens, scopes, function_names, errors, struct_types)
+                if index_type is not None and index_type not in {"dear", "status"}:
+                    first_tok = index_expr_tokens[0]
+                    errors.append(SemanticError(
+                        message=(
+                            f"Invalid array index for '{target_tok.lexeme}': "
+                            f"expected dear/status (numeric), got {index_type or 'unknown'}."
+                        ),
+                        line=first_tok.line,
+                        column=first_tok.column,
+                    ))
+
+           
+            member_chain: List[str] = []
+            while cursor + 1 < len(filtered) and filtered[cursor].kind == "DOT" and filtered[cursor + 1].kind == "id":
+                member_chain.append(filtered[cursor + 1].lexeme)
+                cursor += 2
 
             if cursor < len(filtered) and filtered[cursor].kind in ASSIGNMENT_OPS:
                 symbol = _lookup(scopes, target_tok.lexeme)
@@ -374,20 +643,55 @@ def analyze_semantics(tokens: List) -> List[SemanticError]:
                         break
                     expr_end += 1
 
-                expr_type = _infer_expression_type(filtered[expr_start:expr_end], scopes, function_names, errors)
-                if assign_op != "ASSIGN" and not _is_numeric(symbol.type_name):
+                expr_type = _infer_expression_type(filtered[expr_start:expr_end], scopes, function_names, errors, struct_types)
+
+                
+                target_type = symbol.type_name
+                if member_chain:
+                    current_type = target_type
+                    for field in member_chain:
+                        if current_type in TYPE_KEYWORDS:
+                            errors.append(SemanticError(
+                                message=f"Type '{current_type}' has no fields (cannot access '{field}').",
+                                line=target_tok.line,
+                                column=target_tok.column,
+                            ))
+                            current_type = None
+                            break
+                        fields = struct_types.get(current_type)
+                        if fields is None:
+                            errors.append(SemanticError(
+                                message=f"Unknown struct type '{current_type}'.",
+                                line=target_tok.line,
+                                column=target_tok.column,
+                            ))
+                            current_type = None
+                            break
+                        if field not in fields:
+                            errors.append(SemanticError(
+                                message=f"Struct '{current_type}' has no field '{field}'.",
+                                line=target_tok.line,
+                                column=target_tok.column,
+                            ))
+                            current_type = None
+                            break
+                        current_type = fields[field]
+                    if current_type is not None:
+                        target_type = current_type
+
+                if assign_op != "ASSIGN" and not _is_numeric(target_type):
                     errors.append(SemanticError(
                         message=(
                             f"Operator '{filtered[cursor].lexeme}' requires numeric target, "
-                            f"but '{target_tok.lexeme}' is {symbol.type_name}."
+                            f"but '{target_tok.lexeme}' is {target_type}."
                         ),
                         line=target_tok.line,
                         column=target_tok.column,
                     ))
-                elif not _is_assignable(symbol.type_name, expr_type):
+                elif not _is_assignable(target_type, expr_type):
                     errors.append(SemanticError(
                         message=(
-                            f"Type mismatch: cannot assign {expr_type or 'unknown'} to {symbol.type_name} "
+                            f"Type mismatch: cannot assign {expr_type or 'unknown'} to {target_type} "
                             f"variable '{target_tok.lexeme}'."
                         ),
                         line=target_tok.line,

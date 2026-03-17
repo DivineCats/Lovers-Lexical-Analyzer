@@ -57,6 +57,7 @@ reserved_word_follows = {
     "boundaries": {" ", "\t", "\n"},
     "comeback": {";", "(", '"', "-", "!", " ", "\t", "\n"},
     "avoidant": {" ", "\t", "\n"},
+    "struct": {" ", "\t", "\n"},
     
 }
 
@@ -104,6 +105,7 @@ reserved_symbol_follows = {
     ":": {" ", "\t", "\n"},
     "::":{" ", "\t", "\n", "alphabet"},
     '"': {" ", "\t", "\n", ";", ")", "<", "alphanum"},
+    ".": {" ", "\t", "\n", "alphabet"},
     "<<": {" ", "\t", "\n", "alphanum", '"'},
     ">>": {" ", "\t", "\n", "alphabet"},
     "/*": {" ", "\t", "\n"},

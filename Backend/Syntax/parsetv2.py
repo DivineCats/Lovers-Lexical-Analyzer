@@ -564,16 +564,19 @@ def parse_with_ast(token_list, source_code=None):
         # error_msg is a list of formatted error strings
         return None, error_msg
     
-    # Syntax is valid – return a minimal Program AST with no body.
-    program = Program(
-        line=1,
-        column=1,
-        namespaces=[],
-        global_declarations=[],
-        sub_functions=[],
-        main_function=None,
-    )
-    return program, []
+    # Syntax is valid – build a complete AST from the token stream.
+    try:
+        from Backend.Syntax.AST import RecursiveDescentAstBuilder, AstBuildError
+
+        builder = RecursiveDescentAstBuilder(token_list)
+        program = builder.parse_program()
+        return program, []
+    except Exception as e:
+        # If AST building fails even though syntax validation passed,
+        # surface a readable message (caller may fall back to validation-only).
+        if e.__class__.__name__ == "AstBuildError":
+            return None, [str(e)]
+        return None, [f"AST build failed: {str(e)}"]
 
 def parse_with_errors_parserv2(source: str):
     """

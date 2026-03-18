@@ -139,6 +139,7 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<rant_expr>", ["<rant_term>", "<rant_next>"]),
     ("<rant_next>", [".=", "<rant_expr>", "<rant_multi>", ";"]),
     ("<rant_next>", ["=", "<rant_expr>", "<rant_multi>", ";"]),
+    ("<rant_next>", ["+", "<rant_term>", "<rant_next>"]),
     ("<rant_next>", ["λ"]),
     ("<rant_term>", ["<rant_factor>"]),
     ("<rant_factor>", ["(", "<rant_expr>", ")"]),
@@ -227,15 +228,12 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<for_ud>", ["<unary_ops>", "id"]),
 
     ("<choose_state>", ["choose", "(", "<expr>", ")", "{", "<phase_lst>", "<bareminimum_opt>", "}"]),
-    # Each phase body is a normal <body_func> that can (and should) contain
-    # at least one explicit 'breakup;' statement. We no longer append an
-    # implicit 'breakup;' after the body at the grammar level.
+
     ("<phase_lst>", ["phase", "<choose_const>", ":", "<body_func>", "<phase_lst_next>"]),
     ("<phase_lst_next>", ["<phase_lst>"]),
     ("<phase_lst_next>", ["λ"]),
     ("<choose_const>", ["dear_lit"]),
-    # 'bareminimum' behaves like a final phase whose body can contain its own
-    # explicit 'breakup;' statements as needed.
+ 
     ("<bareminimum_opt>", ["bareminimum", ":", "<body_func>"]),
     ("<bareminimum_opt>", ["λ"]),
 
@@ -333,9 +331,12 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<dear_array_lit_list>", ["<dear_array_elem>", "<more_dear_array_lit>"]),
     ("<dear_array_lit_list>", ["λ"]),
     ("<dear_array_elem>", ["dear_lit"]),
+    ("<dear_array_elem>", ["dearest_lit"]),
     ("<dear_array_elem>", ["id"]),
     ("<dear_array_elem>", ["dear_lit"]),
     ("<dear_array_elem>", ["{", "<dear_array_lit_list>", "}"]),
+    ("<dear_array_elem>", ["greenflag"]),
+    ("<dear_array_elem>", ["redflag"]),
     ("<more_dear_array_lit>", [",", "<dear_array_elem>", "<more_dear_array_lit>"]),
     ("<more_dear_array_lit>", ["λ"]),
     ("<dear_array_assign>", [".=", "<dear_array_source>"]),
@@ -356,6 +357,8 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<dearest_array_elem>", ["dear_lit"]),
     ("<dearest_array_elem>", ["id"]),
     ("<dearest_array_elem>", ["<dearest_neg_lit>"]),
+    ("<dearest_array_elem>", ["greenflag"]),
+    ("<dearest_array_elem>", ["redflag"]),
     ("<dearest_array_elem>", ["{", "<dearest_array_lit_list>", "}"]),
     ("<dearest_neg_lit>", ["-", "dearest_lit"]),
     ("<dearest_neg_lit>", ["-", "dear_lit"]),
@@ -396,6 +399,8 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<status_array_lit_list>", ["λ"]),
     ("<status_array_elem>", ["greenflag"]),
     ("<status_array_elem>", ["redflag"]),
+    ("<status_array_elem>", ["dear_lit"]),
+    ("<status_array_elem>", ["dearest_lit"]),
     ("<status_array_elem>", ["id"]),
     ("<status_array_elem>", ["{", "<status_array_lit_list>", "}"]),
     ("<more_status_array_lit>", [",", "<status_array_elem>", "<more_status_array_lit>"]),

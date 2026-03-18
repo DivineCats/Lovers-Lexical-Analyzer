@@ -227,11 +227,16 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<for_ud>", ["<unary_ops>", "id"]),
 
     ("<choose_state>", ["choose", "(", "<expr>", ")", "{", "<phase_lst>", "<bareminimum_opt>", "}"]),
-    ("<phase_lst>", ["phase", "<choose_const>", ":", "<body_func>", "breakup", ";", "<phase_lst_next>"]),
+    # Each phase body is a normal <body_func> that can (and should) contain
+    # at least one explicit 'breakup;' statement. We no longer append an
+    # implicit 'breakup;' after the body at the grammar level.
+    ("<phase_lst>", ["phase", "<choose_const>", ":", "<body_func>", "<phase_lst_next>"]),
     ("<phase_lst_next>", ["<phase_lst>"]),
     ("<phase_lst_next>", ["λ"]),
     ("<choose_const>", ["dear_lit"]),
-    ("<bareminimum_opt>", ["bareminimum", ":", "<body_func>", "breakup", ";"]),
+    # 'bareminimum' behaves like a final phase whose body can contain its own
+    # explicit 'breakup;' statements as needed.
+    ("<bareminimum_opt>", ["bareminimum", ":", "<body_func>"]),
     ("<bareminimum_opt>", ["λ"]),
 
     ("<comeback_state>", ["comeback", "<expr_opt>", ";"]),

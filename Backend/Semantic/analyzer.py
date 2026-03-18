@@ -115,6 +115,7 @@ def _infer_expression_type(
     function_names: set,
     errors: List[SemanticError],
     struct_types: Optional[Dict[str, Dict[str, str]]] = None,
+    function_returns: Optional[Dict[str, str]] = None,
 ) -> Optional[str]:
     # ============================================================
     # === EXPRESSION TYPE INFERENCE                            ===
@@ -132,10 +133,6 @@ def _infer_expression_type(
         return None
 
     kinds = {tok.kind for tok in expr_tokens}
-    if kinds & LOGICAL_OPS:
-        return "status"
-    if kinds & COMPARISON_OPS:
-        return "status"
 
     observed_types: List[str] = []
 
@@ -160,7 +157,25 @@ def _infer_expression_type(
                         line=tok.line,
                         column=tok.column,
                     ))
+                if function_returns and name in function_returns and function_returns[name] in TYPE_KEYWORDS:
+                    observed_types.append(function_returns[name])
                 i += 1
+            elif (
+                i + 3 < len(expr_tokens)
+                and expr_tokens[i + 1].kind == "OP_SCOPE"
+                and expr_tokens[i + 2].kind == "id"
+                and expr_tokens[i + 3].kind == "LPAREN"
+            ):
+                qname = f"{tok.lexeme}::{expr_tokens[i + 2].lexeme}"
+                if qname not in function_names:
+                    errors.append(SemanticError(
+                        message=f"Undefined function '{qname}'.",
+                        line=tok.line,
+                        column=tok.column,
+                    ))
+                if function_returns and qname in function_returns and function_returns[qname] in TYPE_KEYWORDS:
+                    observed_types.append(function_returns[qname])
+                i += 3
             else:
                 symbol = _lookup(scopes, tok.lexeme)
                 if symbol is None:
@@ -210,6 +225,46 @@ def _infer_expression_type(
     if not observed_types:
         return None
 
+    # ============================================================
+    # === LOGICAL EXPRESSION OPERAND VALIDATION                 ===
+    # ===                                                       ===
+    # === If the expression uses logical operators (&&, ||, !),  ===
+    # === ensure no string-typed (rant) values participate.      ===
+    # === We keep Option-B "truthiness" semantics: numeric and   ===
+    # === status values are allowed in logical contexts.         ===
+    # ============================================================
+    if kinds & LOGICAL_OPS:
+        if any(t == "rant" for t in observed_types):
+            first_tok = next((t for t in expr_tokens if t.kind == "rant_lit"), expr_tokens[0])
+            errors.append(SemanticError(
+                message="Logical expressions cannot use rant operands.",
+                line=first_tok.line,
+                column=first_tok.column,
+            ))
+        return "status"
+
+    # ============================================================
+    # === ARITHMETIC OPERAND VALIDATION                        ===
+    # ===                                                       ===
+    # === For arithmetic operators other than PLUS, require     ===
+    # === numeric operands. We allow string concatenation only  ===
+    # === via PLUS; strings are invalid for -, *, /, %.         ===
+    # === Option-B truthiness applies: status is numeric.       ===
+    # ============================================================
+    non_plus_arith = (kinds & ARITHMETIC_OPS) - {"PLUS", "OP_PLUS_ASSIGN"}
+    if non_plus_arith:
+        if any(t == "rant" for t in observed_types):
+            first_tok = next((t for t in expr_tokens if t.kind == "rant_lit"), expr_tokens[0])
+            errors.append(SemanticError(
+                message="Arithmetic operators (-, *, /, %) cannot use rant (string) operands.",
+                line=first_tok.line,
+                column=first_tok.column,
+            ))
+
+    # Comparisons always yield status (bool-like).
+    if kinds & COMPARISON_OPS:
+        return "status"
+
     if any(t == "rant" for t in observed_types):
         if "PLUS" in kinds and all(t in {"rant", "dear", "dearest", "status"} for t in observed_types):
             return "rant"
@@ -230,11 +285,63 @@ def _collect_function_names(tokens: List) -> set:
     i = 0
     while i < len(tokens):
         tok = tokens[i]
+        # Collect both global functions and namespaced functions declared inside boundaries blocks.
+        # - Global: <type|avoidant> id ( ...
+        # - Namespaced: boundaries NS { <type|avoidant> id ( ... }  => "NS::id"
+        if tok.kind == "boundaries" and i + 3 < len(tokens) and tokens[i + 1].kind == "id" and tokens[i + 2].kind == "LBRACE":
+            ns_name = tokens[i + 1].lexeme
+            j = i + 3
+            depth = 1
+            while j < len(tokens) and depth > 0:
+                if tokens[j].kind == "LBRACE":
+                    depth += 1
+                elif tokens[j].kind == "RBRACE":
+                    depth -= 1
+                # Function header inside boundaries: <type|avoidant> id (
+                if depth == 1 and tokens[j].kind in TYPE_KEYWORDS.union({"avoidant"}):
+                    if j + 2 < len(tokens) and tokens[j + 1].kind == "id" and tokens[j + 2].kind == "LPAREN":
+                        names.add(f"{ns_name}::{tokens[j + 1].lexeme}")
+                j += 1
+            i = j
+            continue
+
         if tok.kind in TYPE_KEYWORDS.union({"avoidant"}):
             if i + 2 < len(tokens) and tokens[i + 1].kind == "id" and tokens[i + 2].kind == "LPAREN":
                 names.add(tokens[i + 1].lexeme)
         i += 1
     return names
+
+
+def _collect_function_return_types(tokens: List) -> Dict[str, str]:
+    """
+    Collect function return types for both global and namespaced functions.
+    Returns mapping name -> return_type, where name may be "foo" or "NS::foo".
+    """
+    returns: Dict[str, str] = {}
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok.kind == "boundaries" and i + 3 < len(tokens) and tokens[i + 1].kind == "id" and tokens[i + 2].kind == "LBRACE":
+            ns_name = tokens[i + 1].lexeme
+            j = i + 3
+            depth = 1
+            while j < len(tokens) and depth > 0:
+                if tokens[j].kind == "LBRACE":
+                    depth += 1
+                elif tokens[j].kind == "RBRACE":
+                    depth -= 1
+                if depth == 1 and tokens[j].kind in TYPE_KEYWORDS.union({"avoidant"}):
+                    if j + 2 < len(tokens) and tokens[j + 1].kind == "id" and tokens[j + 2].kind == "LPAREN":
+                        returns[f"{ns_name}::{tokens[j + 1].lexeme}"] = tokens[j].kind
+                j += 1
+            i = j
+            continue
+
+        if tok.kind in TYPE_KEYWORDS.union({"avoidant"}):
+            if i + 2 < len(tokens) and tokens[i + 1].kind == "id" and tokens[i + 2].kind == "LPAREN":
+                returns[tokens[i + 1].lexeme] = tok.kind
+        i += 1
+    return returns
 
 
 def _parse_params(param_tokens: List) -> List[Tuple[str, object]]:
@@ -268,6 +375,7 @@ def analyze_semantics(tokens: List) -> List[SemanticError]:
         return errors
 
     function_names = _collect_function_names(filtered)
+    function_returns = _collect_function_return_types(filtered)
     struct_types = _collect_struct_types(filtered, errors)
 
     scopes: List[Dict[str, SymbolInfo]] = [dict()]
@@ -351,6 +459,31 @@ def analyze_semantics(tokens: List) -> List[SemanticError]:
             i = j + 1
             continue
 
+        # ============================================================
+        # === CONDITION EXPRESSION VALIDATION                      ===
+        # ===                                                       ===
+        # === Run expression inference on loop/if conditions so we  ===
+        # === can surface operand-type errors (e.g. rant in &&/||). ===
+        # === We keep Option-B truthiness, so numeric/status types  ===
+        # === are allowed as conditions; we only validate operands. ===
+        # ============================================================
+        if tok.kind in {"forever", "forevermore", "while", "pursue"} and i + 1 < len(filtered) and filtered[i + 1].kind == "LPAREN":
+            j = i + 2
+            depth = 1
+            while j < len(filtered):
+                if filtered[j].kind == "LPAREN":
+                    depth += 1
+                elif filtered[j].kind == "RPAREN":
+                    depth -= 1
+                    if depth == 0:
+                        break
+                j += 1
+            # Condition tokens are between '(' and matching ')'
+            cond_tokens = filtered[i + 2 : j]
+            _infer_expression_type(cond_tokens, scopes, function_names, errors, struct_types, function_returns)
+            i = j + 1
+            continue
+
         if tok.kind in TYPE_KEYWORDS.union({"avoidant"}):
             if i + 2 < len(filtered) and filtered[i + 1].kind == "id" and filtered[i + 2].kind == "LPAREN":
                 j = i + 3
@@ -423,7 +556,7 @@ def analyze_semantics(tokens: List) -> List[SemanticError]:
                             break
                         expr_end += 1
 
-                    expr_type = _infer_expression_type(filtered[expr_start:expr_end], scopes, function_names, errors, struct_types)
+                    expr_type = _infer_expression_type(filtered[expr_start:expr_end], scopes, function_names, errors, struct_types, function_returns)
                     if not _is_assignable(declared_type, expr_type):
                         errors.append(SemanticError(
                             message=(
@@ -510,7 +643,7 @@ def analyze_semantics(tokens: List) -> List[SemanticError]:
             has_expr = expr_start < expr_end
             expr_type: Optional[str] = None
             if has_expr:
-                expr_type = _infer_expression_type(filtered[expr_start:expr_end], scopes, function_names, errors, struct_types)
+                expr_type = _infer_expression_type(filtered[expr_start:expr_end], scopes, function_names, errors, struct_types, function_returns)
 
             # Rules:
             # - avoidant: cannot return a value
@@ -593,13 +726,13 @@ def analyze_semantics(tokens: List) -> List[SemanticError]:
                 if start_idx >= end_idx:
                     continue
                 index_expr_tokens = filtered[start_idx:end_idx]
-                index_type = _infer_expression_type(index_expr_tokens, scopes, function_names, errors, struct_types)
+                index_type = _infer_expression_type(index_expr_tokens, scopes, function_names, errors, struct_types, function_returns)
                 if index_type is not None and index_type not in {"dear", "status"}:
                     first_tok = index_expr_tokens[0]
                     errors.append(SemanticError(
                         message=(
                             f"Invalid array index for '{target_tok.lexeme}': "
-                            f"expected dear/status (numeric), got {index_type or 'unknown'}."
+                           
                         ),
                         line=first_tok.line,
                         column=first_tok.column,
@@ -643,7 +776,7 @@ def analyze_semantics(tokens: List) -> List[SemanticError]:
                         break
                     expr_end += 1
 
-                expr_type = _infer_expression_type(filtered[expr_start:expr_end], scopes, function_names, errors, struct_types)
+                expr_type = _infer_expression_type(filtered[expr_start:expr_end], scopes, function_names, errors, struct_types, function_returns)
 
                 
                 target_type = symbol.type_name

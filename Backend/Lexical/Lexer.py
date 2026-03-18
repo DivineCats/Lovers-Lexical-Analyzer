@@ -396,14 +396,14 @@ class Lexer:
         # 's' keywords
         elif first == 's':
             if length == 6 and value[1] == 't' and value[2] == 'a' and value[3] == 't' and value[4] == 'u' and value[5] == 's':
-                return ("STATUS", "status")
+                return ("status", "status")
             elif length == 6 and value[1] == 't' and value[2] == 'r' and value[3] == 'u' and value[4] == 'c' and value[5] == 't':
                 return ("struct", "struct")
         
         # 'w' keywords
         elif first == 'w':
             if length == 5 and value[1] == 'h' and value[2] == 'i' and value[3] == 'l' and value[4] == 'e':
-                return ("WHILE", "while")
+                return ("while", "while")
         
         return None
 

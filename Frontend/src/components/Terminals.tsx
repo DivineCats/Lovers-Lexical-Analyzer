@@ -57,12 +57,33 @@ type Props = {
   lexError?: string | null;
   lexErrors?: string[];
   backendError?: string | null;
+  /** Captured stdout from POST /run (interpreter). */
+  programStdout?: string | null;
+  programRunError?: { phase?: string; message?: string } | null;
+  /** Three-address code from POST /tac after successful validate. */
+  tacText?: string | null;
+  tacError?: { phase?: string; message?: string } | null;
 };
 
-type TabType = "lexical" | "syntax" | "semantic";
+type TabType = "lexical" | "syntax" | "semantic" | "output" | "tac";
 
-export default function Terminal({ source = null, validation = null, lexError = null, lexErrors = [], backendError = null }: Props) {
+export default function Terminal({
+  source = null,
+  validation = null,
+  lexError = null,
+  lexErrors = [],
+  backendError = null,
+  programStdout = null,
+  programRunError = null,
+  tacText = null,
+  tacError = null,
+}: Props) {
   const [activeTab, setActiveTab] = useState<TabType>("lexical");
+
+  const isErrorTab =
+    activeTab === "lexical" ||
+    activeTab === "syntax" ||
+    activeTab === "semantic";
 
   // Auto-switch to first tab that has errors: lexical first, then syntax if no lexical
   useEffect(() => {
@@ -235,15 +256,83 @@ export default function Terminal({ source = null, validation = null, lexError = 
           >
             Semantic ({semanticCount})
           </button>
+          <button
+            className={`tab-button ${activeTab === "output" ? "active" : ""}`}
+            onClick={() => setActiveTab("output")}
+          >
+            Output
+          </button>
+          <button
+            className={`tab-button ${activeTab === "tac" ? "active" : ""}`}
+            onClick={() => setActiveTab("tac")}
+          >
+            TAC
+          </button>
         </div>
       </div>
       <div className="term-log" aria-live="polite">
-        {filteredErrors.length === 0 && !(hasLexicalErrors && activeTab === "syntax") && (
+        {activeTab === "output" && (
+          <div className="c-gen-panel">
+            {programRunError?.message ? (
+              <div className="error-container">
+                <div className="error-item">
+                  <span className="error-badge error-badge--backend">RUN</span>
+                  <span className="error-message">
+                    {programRunError.message}
+                    {programRunError.phase ? (
+                      <span className="error-location-inline"> ({programRunError.phase})</span>
+                    ) : null}
+                  </span>
+                </div>
+              </div>
+            ) : programStdout != null ? (
+              <>
+                <div className="c-gen-hint">Program output (interpreter). Uses backend POST /run.</div>
+                {programStdout.length > 0 ? (
+                  <pre className="c-source-pre" tabIndex={0}>{programStdout}</pre>
+                ) : (
+                  <div className="term-log__empty">(no output)</div>
+                )}
+              </>
+            ) : (
+              <div className="term-log__empty">
+                Click <strong>Run</strong> when there are no errors to execute <code>love ()</code> and see <code>express</code> output here.
+              </div>
+            )}
+          </div>
+        )}
+        {activeTab === "tac" && (
+          <div className="c-gen-panel">
+            {tacError?.message ? (
+              <div className="error-container">
+                <div className="error-item">
+                  <span className="error-badge error-badge--backend">TAC</span>
+                  <span className="error-message">
+                    {tacError.message}
+                    {tacError.phase ? (
+                      <span className="error-location-inline"> ({tacError.phase})</span>
+                    ) : null}
+                  </span>
+                </div>
+              </div>
+            ) : tacText != null && tacText.length > 0 ? (
+              <>
+                <div className="c-gen-hint">Three-address code (intermediate). Emitted after semantic analysis.</div>
+                <pre className="c-source-pre" tabIndex={0}>{tacText}</pre>
+              </>
+            ) : (
+              <div className="term-log__empty">
+                Fix all analyzer errors; TAC is generated when the program validates (POST <code>/tac</code>).
+              </div>
+            )}
+          </div>
+        )}
+        {isErrorTab && filteredErrors.length === 0 && !(hasLexicalErrors && activeTab === "syntax") && (
           <div className="term-log__empty">
             {hasErrors ? `No ${activeTab} errors detected.` : "No errors detected."}
           </div>
         )}
-        {filteredErrors.map((error, idx) => {
+        {isErrorTab && filteredErrors.map((error, idx) => {
           const constructionHint = error.type === "syntax" ? getConstructionHint(error.expected, error.message, error.unexpectedToken) : null;
           // Universal syntax error format: first line = what went wrong; second line = expected token(s) from CFG (always shown in bar)
           const lines = error.message.split(/\n/).map((s) => s.trim()).filter(Boolean);
@@ -329,7 +418,7 @@ export default function Terminal({ source = null, validation = null, lexError = 
           );
         })}
         {/* Show prompt to resolve lexical errors first before syntax analysis */}
-        {hasLexicalErrors && activeTab === "syntax" && (
+        {isErrorTab && hasLexicalErrors && activeTab === "syntax" && (
           <div className="error-container">
             <div className="error-item">
               <span className="error-badge error-badge--syntax">SYNTAX</span>

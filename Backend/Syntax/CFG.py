@@ -187,6 +187,7 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<statements>", ["<choose_state>", "<statements>"]),
     ("<statements>", ["<unary_state>", "<statements>"]),
     ("<statements>", ["<break_state>", "<statements>"]),
+    ("<statements>", ["<continue_state>", "<statements>"]),
     ("<statements>", ["λ"]),
 
     ("<id_suffix>", ["[", "<array_index_expr>", "]", "<id_suffix>"]),
@@ -239,6 +240,7 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
 
     ("<comeback_state>", ["comeback", "<expr_opt>", ";"]),
     ("<break_state>", ["breakup", ";"]),
+    ("<continue_state>", ["moveon", ";"]),
     ("<expr>", ["<log_expr>"]),
     ("<expr_opt>", ["<expr>"]),
     ("<expr_opt>", ["λ"]),

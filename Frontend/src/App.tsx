@@ -69,6 +69,40 @@ const VALIDATE_ENDPOINT = normalizeEndpoint(
   "/validate"
 );
 
+const normalizeRunEndpoint = (rawValue: string | undefined) => {
+  const value = rawValue?.trim();
+  if (value) {
+    const lower = value.toLowerCase();
+    if (lower.endsWith("/run")) {
+      return value;
+    }
+    return `${value.replace(/\/+$/, "")}/run`;
+  }
+  if (API_BASE) {
+    return `${API_BASE.replace(/\/+$/, "")}/run`;
+  }
+  return "/run";
+};
+
+const RUN_ENDPOINT = normalizeRunEndpoint(import.meta.env.VITE_RUN_ENDPOINT);
+
+const normalizeTacEndpoint = (rawValue: string | undefined) => {
+  const value = rawValue?.trim();
+  if (value) {
+    const lower = value.toLowerCase();
+    if (lower.endsWith("/tac")) {
+      return value;
+    }
+    return `${value.replace(/\/+$/, "")}/tac`;
+  }
+  if (API_BASE) {
+    return `${API_BASE.replace(/\/+$/, "")}/tac`;
+  }
+  return "/tac";
+};
+
+const TAC_ENDPOINT = normalizeTacEndpoint(import.meta.env.VITE_TAC_ENDPOINT);
+
 async function parseResponseBody(
   resp: Response
 ): Promise<{ data: any; raw: string | null }> {
@@ -95,6 +129,16 @@ export default function App() {
   const [backendError, setBackendError] = useState<string | null>(null);
   const [parserType] = useState<"rd" | "parserv2">("parserv2");
   const [isRunning, setIsRunning] = useState(false);
+  const [programStdout, setProgramStdout] = useState<string | null>(null);
+  const [programRunError, setProgramRunError] = useState<{
+    phase?: string;
+    message?: string;
+  } | null>(null);
+  const [tacText, setTacText] = useState<string | null>(null);
+  const [tacError, setTacError] = useState<{
+    phase?: string;
+    message?: string;
+  } | null>(null);
 
   const debouncedSource = useDebounce(source, 450);
 
@@ -264,6 +308,13 @@ export default function App() {
   }, [source, parserType]);
 
   useEffect(() => {
+    setProgramStdout(null);
+    setProgramRunError(null);
+    setTacText(null);
+    setTacError(null);
+  }, [debouncedSource]);
+
+  useEffect(() => {
     let cancelled = false;
     (async () => {
       const { hasLexError } = await lexSource(debouncedSource);
@@ -271,9 +322,43 @@ export default function App() {
       // If lexing succeeds (or source is empty), always run syntax;
       // only skip syntax when there are real lexical errors.
       if (!hasLexError) {
-        await syntaxSource(debouncedSource);
+        const v = await syntaxSource(debouncedSource);
+        if (cancelled) return;
+        if (v.ok) {
+          try {
+            const resp = await fetch(TAC_ENDPOINT, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ source: debouncedSource }),
+            });
+            const { data: payload } = await parseResponseBody(resp);
+            if (cancelled) return;
+            if (resp.ok && payload?.ok && typeof payload?.tac === "string") {
+              setTacText(payload.tac as string);
+              setTacError(null);
+            } else {
+              setTacText(null);
+              setTacError({
+                phase: payload?.phase as string | undefined,
+                message:
+                  (payload?.message as string | undefined) ??
+                  `TAC failed (HTTP ${resp.status})`,
+              });
+            }
+          } catch {
+            if (!cancelled) {
+              setTacText(null);
+              setTacError({ message: "Failed to fetch TAC." });
+            }
+          }
+        } else {
+          setTacText(null);
+          setTacError(null);
+        }
       } else {
         setValidation(null);
+        setTacText(null);
+        setTacError(null);
       }
     })();
     return () => { cancelled = true; };
@@ -284,15 +369,40 @@ export default function App() {
 
   const handleRunCode = useCallback(async () => {
     setIsRunning(true);
+    setProgramStdout(null);
+    setProgramRunError(null);
     try {
       const { hasLexError } = await lexSource(source);
       // Run syntax whenever lexing succeeds (or source is empty),
       // and only clear syntax state on true lexical errors.
       if (!hasLexError) {
-        await syntaxSource(source);
+        const v = await syntaxSource(source);
+        if (!v.ok) {
+          return;
+        }
       } else {
         setValidation(null);
+        return;
       }
+
+      const resp = await fetch(RUN_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source, stdin: "" }),
+      });
+      const { data: payload } = await parseResponseBody(resp);
+      if (resp.ok && payload?.ok) {
+        setProgramStdout((payload.stdout as string) ?? "");
+        return;
+      }
+      const msg =
+        (payload?.message as string | undefined) ??
+        (payload?.error as string | undefined) ??
+        `Run failed (HTTP ${resp.status})`;
+      setProgramRunError({
+        phase: payload?.phase as string | undefined,
+        message: msg,
+      });
     } finally {
       setIsRunning(false);
     }
@@ -307,7 +417,7 @@ export default function App() {
   );
 
   return (
-    <>
+    <div className="app-shell">
       <Header
         label="main.love"
         right={
@@ -342,9 +452,13 @@ export default function App() {
             lexError={lexError}
             lexErrors={lexErrors}
             backendError={backendError}
+            programStdout={programStdout}
+            programRunError={programRunError}
+            tacText={tacText}
+            tacError={tacError}
           />
         </section>
       </main>
-    </>
+    </div>
   );
 }

@@ -24,10 +24,8 @@ a:hover {
 
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
-  min-height: 100vh;
+  /* Layout (flex / height / overflow) is set in App.css for the IDE shell */
 }
 
 h1 {

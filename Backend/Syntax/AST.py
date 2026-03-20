@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Sequence, Tuple, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 
 # =============================================================================
@@ -22,6 +22,13 @@ class ASTNode:
 
 
 @dataclass
+class StructDefinition(ASTNode):
+    """struct Name { fields }; — fields map: member name -> type (primitive or nested struct name)."""
+    name: str = ""
+    fields: Dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
 class Program(ASTNode):
     """
     Root node for Lovers program:
@@ -30,6 +37,8 @@ class Program(ASTNode):
     - All top-level declarations before `love` (variables, consts, functions, namespaces)
       are represented in the lists below.
     """
+    # Top-level `struct` definitions (before `love`)
+    struct_definitions: List["StructDefinition"] = field(default_factory=list)
     # All top-level namespaces created via `boundaries id { ... }`
     namespaces: List["Namespace"] = field(default_factory=list)
     # Top-level (non-namespace) variable / const declarations before `love`
@@ -418,11 +427,15 @@ class RecursiveDescentAstBuilder:
     # -------------------------
     def parse_program(self) -> Program:
         line, col = self._pos()
+        structs: List[StructDefinition] = []
         namespaces: List[Namespace] = []
         globals_: List[Declaration] = []
         subs: List[Function] = []
 
         while self._kind() != "love" and not self._at_end():
+            if self._kind() == "struct" and self._kind(1) == "id" and self._kind(2) == "{":
+                structs.append(self._parse_struct_definition())
+                continue
             if self._kind() == "boundaries":
                 namespaces.append(self._parse_namespace())
                 continue
@@ -448,6 +461,7 @@ class RecursiveDescentAstBuilder:
         return Program(
             line=line,
             column=col,
+            struct_definitions=structs,
             namespaces=namespaces,
             global_declarations=globals_,
             sub_functions=subs,
@@ -457,6 +471,45 @@ class RecursiveDescentAstBuilder:
     # -------------------------
     # top-level constructs
     # -------------------------
+    def _parse_struct_definition(self) -> StructDefinition:
+        st_tok = self._expect("struct", "Expected `struct`")
+        name_tok = self._expect("id", "Expected struct name")
+        self._expect("{", "Expected `{` to start struct body")
+        fields: Dict[str, str] = {}
+        while self._kind() != "}" and not self._at_end():
+            if self._kind() in DATA_TYPES:
+                ty = self._expect_any(sorted(DATA_TYPES), "Expected field type")
+                fid = self._expect("id", "Expected field name")
+                self._expect(";", "Expected `;` after struct field")
+                if fid.lexeme in fields:
+                    line, col = self._pos()
+                    raise AstBuildError(f"Duplicate field '{fid.lexeme}' in struct '{name_tok.lexeme}'", line, col)
+                fields[fid.lexeme] = ty.token
+            elif self._kind() == "struct":
+                self._expect("struct", "Expected `struct` for nested field")
+                inner = self._expect("id", "Expected nested struct type name")
+                fid = self._expect("id", "Expected field name")
+                self._expect(";", "Expected `;` after struct field")
+                if fid.lexeme in fields:
+                    line, col = self._pos()
+                    raise AstBuildError(f"Duplicate field '{fid.lexeme}' in struct '{name_tok.lexeme}'", line, col)
+                fields[fid.lexeme] = inner.lexeme
+            else:
+                line, col = self._pos()
+                raise AstBuildError(
+                    f"Expected field declaration in struct body, found `{self._kind()}`",
+                    line,
+                    col,
+                )
+        self._expect("}", "Expected `}` to end struct body")
+        self._expect(";", "Expected `;` after struct definition")
+        return StructDefinition(
+            line=st_tok.line,
+            column=st_tok.column,
+            name=name_tok.lexeme,
+            fields=fields,
+        )
+
     def _parse_namespace(self) -> Namespace:
         kw = self._expect("boundaries", "Expected `boundaries`")
         name_tok = self._expect("id", "Expected namespace name")

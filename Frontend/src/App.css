@@ -1,7 +1,9 @@
-/* Make root elements fill the full viewport so the app can use the whole screen */
+/* Lock layout to the viewport: no whole-page scroll; panels scroll inside. */
 html, body, #root {
   height: 100%;
+  max-height: 100%;
   width: 100%;
+  overflow: hidden;
 }
 
 /* use border-box everywhere to keep padding inside width calculations */
@@ -11,25 +13,37 @@ body {
   margin: 0;
   background: var(--bg);
   color: #f7eaea;
-  display: flex;
-  /* Left-align the app so the editor sits at the leftmost edge */
-  justify-content: flex-start;
-  align-items: flex-start;
-  min-height: 100vh;
-  width: 100vw; /* ensure body spans the viewport width */
+  width: 100vw;
+  height: 100%;
+  display: block;
+  overflow: hidden;
 }
 
+/* Single column: header + main fills remaining height */
+.app-shell {
+  height: 100%;
+  max-height: 100vh;
+  max-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
 
 /* === App layout === */
 .app {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   width: 100%;
   max-width: none;
   padding: 20px;
-  /* Top padding intentionally removed per request */
+  padding-top: 12px;
   box-sizing: border-box;
   display: grid;
   grid-template-columns: 1fr var(--tokens-width);
-  grid-auto-rows: minmax(0, auto);
+  /* Top row (editor + tokens) shorter; terminal gets more height */
+  grid-template-rows: minmax(0, var(--app-row-editor-tokens)) minmax(220px, var(--app-row-terminal));
   gap: 18px 50px;
   align-items: stretch;
 }
@@ -44,33 +58,51 @@ body {
 :root {
   /* Layout variables - edit these to configure panel spacing and sizes */
   --tokens-width: 500px; /* width of the tokens panel (right sidebar) */
-
+  /* Vertical split: editor+tokens row vs terminal (fr units share leftover height) */
+  --app-row-editor-tokens: 0.52fr;
+  --app-row-terminal: 0.48fr;
 }
 
 .panel--editor {
   /* Editor should occupy the left (first) grid column and be fluid. */
   grid-column: 1 / 2;
+  grid-row: 1;
   width: 100%;
   min-width: 0;
-  height: 450px;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .panel--tokens {
   grid-column: 2 / 3;
+  grid-row: 1;
   width: var(--tokens-width);
   max-width: var(--tokens-width);
   justify-self: end;
-  height: 450px; /* stick with the editor height */
-  min-height: 0; /* safeguards flex layouts */
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
 }
 
 .panel--terminal {
   grid-column: 1 / -1;
-  display: grid;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
   padding: 0;
   min-width: 0;
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
   background: transparent;
   border: none;
+}
+
+.panel--terminal > .terminal-panel {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 /* Header controls (Run button + parser select) */
@@ -140,20 +172,30 @@ body {
 @media (max-width: 800px) {
   .app {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 0.85fr) minmax(200px, 0.72fr);
     gap: 16px;
   }
 
-  .panel--editor,
-  .panel--tokens,
-  .panel--terminal {
+  .panel--editor {
     grid-column: 1 / -1;
+    grid-row: 1;
     width: 100%;
     max-width: 100%;
     min-width: 0;
   }
 
-  .panel--editor,
   .panel--tokens {
-    height: auto;
+    grid-column: 1 / -1;
+    grid-row: 2;
+    width: 100%;
+    max-width: 100%;
+    justify-self: stretch;
+    min-width: 0;
+  }
+
+  .panel--terminal {
+    grid-column: 1 / -1;
+    grid-row: 3;
+    min-height: 0;
   }
 }

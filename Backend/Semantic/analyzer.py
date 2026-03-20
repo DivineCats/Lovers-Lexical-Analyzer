@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from dataclasses import dataclass, replace
+from typing import Dict, List, Optional, Tuple, Union
 
 from Backend.Syntax.AST import (
     Program,
@@ -43,6 +43,25 @@ from Backend.Syntax.AST import (
 
 TYPE_KEYWORDS = {"dear", "dearest", "rant", "status"}
 
+# Types allowed in if / while / for / pursue conditions (C++-style truthiness).
+_CONDITION_TRUTH_TYPES = {"dear", "dearest", "status"}
+
+# Types that support ++/-- (same as typical C arithmetic / bool-as-int style).
+_INCREMENTABLE_TYPES = {"dear", "dearest", "status"}
+
+
+@dataclass(frozen=True)
+class AnalysisContext:
+    """
+    Context while walking function bodies.
+
+    - return_type: None means void (avoidant, or love() main).
+    - loop_depth / switch_depth: for validating breakup / moveon placement.
+    """
+    return_type: Optional[str] = None
+    loop_depth: int = 0
+    switch_depth: int = 0
+
 
 @dataclass
 class SemanticError(Exception):
@@ -76,6 +95,7 @@ class SymbolInfo:
     is_const: bool
     line: int
     column: int
+    array_dimensions: int = 0
 
 
 @dataclass
@@ -96,13 +116,276 @@ def _is_numeric(type_name: str) -> bool:
     return type_name in {"dear", "dearest", "status"}
 
 
+# Inferred type for `{ ... }` when it appears as a general expression (not at declaration).
+# Never assignable to scalars via `_is_assignable`.
+ARRAY_LITERAL_EXPR_TYPE = "array_literal"
+
+
 def _is_assignable(target_type: str, value_type: Optional[str]) -> bool:
     if value_type is None:
         return True
+    if value_type == ARRAY_LITERAL_EXPR_TYPE:
+        return False
     if target_type == value_type:
         return True
     if target_type in {"dear", "dearest", "status"} and value_type in {"dear", "dearest", "status"}:
         return True
+    return False
+
+
+def _collect_struct_types_from_program(
+    program: Program,
+    errors: List[SemanticError],
+) -> Dict[str, Dict[str, str]]:
+    """Build struct layout table from `Program.struct_definitions` (AST — single source)."""
+    struct_types: Dict[str, Dict[str, str]] = {}
+    for sd in program.struct_definitions:
+        if sd.name in struct_types:
+            errors.append(SemanticError(
+                message=f"Redeclaration of struct '{sd.name}'.",
+                node=sd,
+            ))
+            continue
+        struct_types[sd.name] = dict(sd.fields)
+    return struct_types
+
+
+def _case_literal_type(value: Union[int, float, str]) -> str:
+    """Semantic type of a `phase` literal constant."""
+    if isinstance(value, bool):
+        return "status"
+    if isinstance(value, int):
+        return "dear"
+    if isinstance(value, float):
+        return "dearest"
+    return "rant"
+
+
+def _require_bool_convertible_condition(
+    condition: Optional[Expression],
+    report_node: ASTNode,
+    scopes: List[Dict[str, SymbolInfo]],
+    struct_types: Dict[str, Dict[str, str]],
+    function_table: Dict[str, List[FunctionInfo]],
+    errors: List[SemanticError],
+) -> None:
+    """
+    C++-style conditions: dear / dearest / status are OK (implicit truth test:
+    zero / false vs non-zero / true). rant, array literals, struct values, etc. are not.
+    """
+    if condition is None:
+        return
+    t = _infer_expression_type_ast(
+        condition,
+        scopes,
+        struct_types,
+        function_table,
+        errors,
+    )
+    if t is None:
+        return
+    if t == ARRAY_LITERAL_EXPR_TYPE:
+        errors.append(SemanticError(
+            message="Condition cannot be an array literal.",
+            node=report_node,
+        ))
+        return
+    if t == "rant":
+        errors.append(SemanticError(
+            message=(
+                "Condition cannot be rant (string); use a comparison that yields status, "
+                "or a numeric/boolean expression."
+            ),
+            node=report_node,
+        ))
+        return
+    if t not in _CONDITION_TRUTH_TYPES:
+        errors.append(SemanticError(
+            message=(
+                f"Condition must be dear, dearest, or status (C++-style truth value), "
+                f"not '{t}'."
+            ),
+            node=report_node,
+        ))
+
+
+def _validate_assignment_indices_and_rhs(
+    stmt: AssignmentStatement,
+    sym: SymbolInfo,
+    scopes: List[Dict[str, SymbolInfo]],
+    struct_types: Dict[str, Dict[str, str]],
+    function_table: Dict[str, List[FunctionInfo]],
+    errors: List[SemanticError],
+) -> None:
+    n_idx = len(stmt.array_indices)
+    dims = sym.array_dimensions
+
+    if dims == 0 and n_idx > 0:
+        errors.append(SemanticError(
+            message=f"Cannot subscript non-array variable '{stmt.identifier}'.",
+            node=stmt,
+        ))
+        return
+
+    if dims > 0 and n_idx == 0:
+        errors.append(SemanticError(
+            message=(
+                f"Cannot assign to array '{stmt.identifier}' without indexing "
+                f"({dims} subscript(s) required)."
+            ),
+            node=stmt,
+        ))
+        return
+
+    if dims > 0 and n_idx != dims:
+        errors.append(SemanticError(
+            message=(
+                f"Wrong number of subscripts for '{stmt.identifier}': "
+                f"expected {dims}, got {n_idx}."
+            ),
+            node=stmt,
+        ))
+        # still type-check indices & rhs for more errors
+    for idx_expr in stmt.array_indices:
+        idx_type = _infer_expression_type_ast(
+            idx_expr,
+            scopes,
+            struct_types,
+            function_table,
+            errors,
+        )
+        if idx_type is not None and idx_type not in {"dear", "status"}:
+            errors.append(SemanticError(
+                message=(
+                    f"Invalid array index for '{stmt.identifier}': "
+                    f"type {idx_type} is not dear/status."
+                ),
+                node=idx_expr,
+            ))
+
+    rhs_type = _infer_expression_type_ast(
+        stmt.value,
+        scopes,
+        struct_types,
+        function_table,
+        errors,
+    )
+    if not _is_assignable(sym.type_name, rhs_type):
+        errors.append(SemanticError(
+            message=(
+                f"Type mismatch: cannot assign {rhs_type or 'unknown'} "
+                f"to {sym.type_name} element '{stmt.identifier}'."
+            ),
+            node=stmt,
+        ))
+
+
+def _unify_array_literal_element_types(
+    item_types: List[Optional[str]],
+    array_lit: ArrayLiteralExpression,
+    errors: List[SemanticError],
+) -> Optional[str]:
+    """
+    Require a common element category for all items: primitives or one struct name,
+    with numeric promotion (dear/dearest/status) like arithmetic.
+    """
+    if not item_types:
+        errors.append(SemanticError(
+            message="Array literal must contain at least one element.",
+            node=array_lit,
+        ))
+        return None
+
+    acc: Optional[str] = None
+    for t in item_types:
+        if t is None:
+            continue
+        if t == ARRAY_LITERAL_EXPR_TYPE:
+            errors.append(SemanticError(
+                message="Nested array literals are invalid in this array expression.",
+                node=array_lit,
+            ))
+            return None
+        if t == "rant":
+            if acc is not None and acc != "rant":
+                errors.append(SemanticError(
+                    message="Array literal mixes incompatible types (rant with non-rant).",
+                    node=array_lit,
+                ))
+                return None
+            acc = "rant"
+            continue
+        if t in {"dear", "dearest", "status"}:
+            if acc == "rant" or (acc is not None and acc not in {"dear", "dearest", "status"}):
+                errors.append(SemanticError(
+                    message="Array literal mixes incompatible element types.",
+                    node=array_lit,
+                ))
+                return None
+            if acc is None:
+                acc = t
+            elif "dearest" in {acc, t}:
+                acc = "dearest"
+            else:
+                acc = "dear"
+            continue
+        # struct or other named type
+        if acc is not None:
+            if acc in {"dear", "dearest", "status", "rant"} or acc != t:
+                errors.append(SemanticError(
+                    message="Array literal mixes incompatible element types.",
+                    node=array_lit,
+                ))
+                return None
+        acc = t
+    if acc is None:
+        errors.append(SemanticError(
+            message="Could not infer a uniform element type for array literal.",
+            node=array_lit,
+        ))
+        return None
+    return acc
+
+
+def _typed_return_statement_returns_value(stmt: ReturnStatement) -> bool:
+    return stmt.value is not None
+
+
+def _body_definitely_returns_with_value(body: FunctionBody) -> bool:
+    """Whether every control-flow path through `body` executes comeback <expr> (typed fn)."""
+    return _stmts_definitely_return_with_value(body.statements)
+
+
+def _stmts_definitely_return_with_value(stmts: List[Statement]) -> bool:
+    for stmt in stmts:
+        if isinstance(stmt, ReturnStatement):
+            return _typed_return_statement_returns_value(stmt)
+        if isinstance(stmt, IfStatement):
+            if not _body_definitely_returns_with_value(stmt.then_body):
+                return False
+            for clause in stmt.elif_clauses:
+                if not _body_definitely_returns_with_value(clause.body):
+                    return False
+            if stmt.else_body is None:
+                return False
+            return _body_definitely_returns_with_value(stmt.else_body)
+        if isinstance(stmt, WhileStatement) or isinstance(stmt, ForStatement):
+            continue
+        if isinstance(stmt, DoWhileStatement):
+            if _body_definitely_returns_with_value(stmt.body):
+                return True
+            continue
+        if isinstance(stmt, SwitchStatement):
+            if not stmt.cases:
+                continue
+            for case in stmt.cases:
+                if not _body_definitely_returns_with_value(case.body):
+                    return False
+            if stmt.default_case is None:
+                return False
+            if not _body_definitely_returns_with_value(stmt.default_case):
+                return False
+            return True
     return False
 
 
@@ -127,30 +410,17 @@ def analyze_semantics(tokens: List) -> List[SemanticError]:
     if program is None:
         return []
 
-    # Collect struct type information from the original tokens.
-    struct_types = _collect_struct_types(tokens)
-
-    return analyze_program_ast(program, struct_types)
+    return analyze_program_ast(program)
 
 
-def analyze_program_ast(
-    program: Program,
-    struct_types: Dict[str, Dict[str, str]],
-) -> List[SemanticError]:
+def analyze_program_ast(program: Program) -> List[SemanticError]:
     """
-    AST-based semantic analyzer.
-
-    Initial responsibilities:
-    - Build symbol tables from declarations (globals, locals, parameters)
-    - Report redeclaration in the same scope
-
-    You can extend this incrementally with:
-    - Undeclared identifier checks
-    - Const assignment checks
-    - Type compatibility for declarations/assignments
-    - Function calls, returns, structs, arrays, etc.
+    Full AST semantic pass: structs (from `Program.struct_definitions`), symbols,
+    types, control flow, overloads, choose/phase labels, and return paths.
     """
     errors: List[SemanticError] = []
+
+    struct_types = _collect_struct_types_from_program(program, errors)
 
     # Collect all function overloads (global + namespaced) into a table.
     function_table: Dict[str, List[FunctionInfo]] = _collect_function_table(program, errors)
@@ -216,67 +486,6 @@ def _collect_function_table(
     return table
 
 
-def _collect_struct_types(tokens: List) -> Dict[str, Dict[str, str]]:
-    """
-    Build a struct type table from top-level `struct` definitions:
-      struct_types[StructName][field] = type_name
-    where type_name is either a primitive (dear/dearest/rant/status)
-    or another struct name (for nested struct fields).
-    """
-    struct_types: Dict[str, Dict[str, str]] = {}
-    i = 0
-    while i < len(tokens):
-        tok = tokens[i]
-        if tok.kind != "struct" or i + 2 >= len(tokens):
-            i += 1
-            continue
-
-        # struct Name { ... };
-        if tokens[i + 1].kind != "id" or tokens[i + 2].kind != "LBRACE":
-            i += 1
-            continue
-
-        struct_name = tokens[i + 1].lexeme
-        fields: Dict[str, str] = {}
-        i += 3  # skip 'struct Name {'
-
-        while i < len(tokens) and tokens[i].kind != "RBRACE":
-            # Primitive field: dear x;
-            if tokens[i].kind in TYPE_KEYWORDS:
-                if (
-                    i + 2 < len(tokens)
-                    and tokens[i + 1].kind == "id"
-                    and tokens[i + 2].kind == "SEMICOLON"
-                ):
-                    fields[tokens[i + 1].lexeme] = tokens[i].kind
-                    i += 3
-                    continue
-
-            # Nested struct field: struct Address addr;
-            if tokens[i].kind == "struct":
-                if (
-                    i + 3 < len(tokens)
-                    and tokens[i + 1].kind == "id"
-                    and tokens[i + 2].kind == "id"
-                    and tokens[i + 3].kind == "SEMICOLON"
-                ):
-                    fields[tokens[i + 2].lexeme] = tokens[i + 1].lexeme
-                    i += 4
-                    continue
-
-            i += 1
-
-        # Skip closing brace and optional semicolon
-        if i < len(tokens) and tokens[i].kind == "RBRACE":
-            i += 1
-        if i < len(tokens) and tokens[i].kind == "SEMICOLON":
-            i += 1
-
-        struct_types[struct_name] = fields
-
-    return struct_types
-
-
 def _declare_variable_ast(
     decl: Declaration,
     scopes: List[Dict[str, SymbolInfo]],
@@ -285,38 +494,44 @@ def _declare_variable_ast(
     errors: List[SemanticError],
 ) -> None:
     """
-    Declare a variable in the given scope, reporting redeclaration errors.
-    This handles the primary identifier on a Declaration; you can extend it
-    later to also handle decl.multi_declarations.
+    Declare one or more variables from a `Declaration` (comma-separated
+    `multi_declarations` share the same data type and const-ness).
     """
     current_scope = scopes[-1]
-    name = decl.identifier
-    if not name:
-        return
+    segments: List[Tuple[str, int, Optional[Expression], ASTNode]] = [
+        (decl.identifier, decl.array_dimensions, decl.initial_value, decl),
+    ]
+    for md in decl.multi_declarations:
+        segments.append((md.identifier, md.array_dimensions, md.initial_value, md))
 
-    if name in current_scope:
-        errors.append(SemanticError(
-            message=f"Redeclaration of '{name}' in the same scope.",
-            node=decl,
-        ))
-        return
+    for name, dims, init, node in segments:
+        if not name:
+            continue
 
-    current_scope[name] = SymbolInfo(
-        name=name,
-        type_name=decl.data_type,
-        is_const=decl.is_const,
-        line=decl.line,
-        column=decl.column,
-    )
+        if name in current_scope:
+            errors.append(SemanticError(
+                message=f"Redeclaration of '{name}' in the same scope.",
+                node=node,
+            ))
+            continue
 
-    # If there is an initializer, type-check it against the declared type.
-    if decl.initial_value is not None:
-        # Array initializer needs per-element validation (C++ style).
-        if isinstance(decl.initial_value, ArrayLiteralExpression):
+        current_scope[name] = SymbolInfo(
+            name=name,
+            type_name=decl.data_type,
+            is_const=decl.is_const,
+            line=getattr(node, "line", decl.line),
+            column=getattr(node, "column", decl.column),
+            array_dimensions=dims,
+        )
+
+        if init is None:
+            continue
+
+        if isinstance(init, ArrayLiteralExpression):
             _check_array_initializer_elements(
                 declared_type=decl.data_type,
-                declared_dims=decl.array_dimensions,
-                array_lit=decl.initial_value,
+                declared_dims=dims,
+                array_lit=init,
                 decl_name=name,
                 scopes=scopes,
                 struct_types=struct_types,
@@ -325,7 +540,7 @@ def _declare_variable_ast(
             )
         else:
             value_type = _infer_expression_type_ast(
-                decl.initial_value,
+                init,
                 scopes,
                 struct_types,
                 function_table,
@@ -337,7 +552,7 @@ def _declare_variable_ast(
                         f"Type mismatch: cannot assign {value_type or 'unknown'} "
                         f"to {decl.data_type} variable '{name}'."
                     ),
-                    node=decl,
+                    node=node,
                 ))
 
 
@@ -416,6 +631,189 @@ def _check_array_initializer_elements(
         )
 
 
+def _validate_incdec_symbol(
+    sym: Optional[SymbolInfo],
+    identifier: str,
+    node: ASTNode,
+    errors: List[SemanticError],
+) -> bool:
+    """
+    Shared rules for ++/-- on a simple identifier (statement or for-update).
+    Returns True if the operation is allowed.
+    """
+    if sym is None:
+        errors.append(SemanticError(
+            message=f"Undeclared identifier '{identifier}'.",
+            node=node,
+        ))
+        return False
+    if sym.is_const:
+        errors.append(SemanticError(
+            message=f"Cannot increment or decrement const variable '{identifier}'.",
+            node=node,
+        ))
+        return False
+    if sym.array_dimensions > 0:
+        errors.append(SemanticError(
+            message=(
+                f"Cannot apply increment/decrement to array '{identifier}' "
+                f"without a subscript."
+            ),
+            node=node,
+        ))
+        return False
+    if sym.type_name not in _INCREMENTABLE_TYPES:
+        errors.append(SemanticError(
+            message=(
+                f"Increment/decrement is not defined for type '{sym.type_name}' "
+                f"on '{identifier}'."
+            ),
+            node=node,
+        ))
+        return False
+    return True
+
+
+def _analyze_for_update_ast(
+    upd: ForUpdate,
+    scopes: List[Dict[str, SymbolInfo]],
+    struct_types: Dict[str, Dict[str, str]],
+    function_table: Dict[str, List[FunctionInfo]],
+    errors: List[SemanticError],
+) -> None:
+    sym = _lookup(scopes, upd.identifier)
+    if upd.operator in {"++", "--"}:
+        _validate_incdec_symbol(sym, upd.identifier, upd, errors)
+        return
+
+    if sym is None:
+        errors.append(SemanticError(
+            message=f"Undeclared identifier '{upd.identifier}'.",
+            node=upd,
+        ))
+        return
+    if sym.is_const:
+        errors.append(SemanticError(
+            message=f"Cannot assign to const variable '{upd.identifier}' in for-update.",
+            node=upd,
+        ))
+        return
+    if upd.value is None:
+        return
+    rhs_type = _infer_expression_type_ast(
+        upd.value,
+        scopes,
+        struct_types,
+        function_table,
+        errors,
+    )
+    if not _is_assignable(sym.type_name, rhs_type):
+        errors.append(SemanticError(
+            message=(
+                f"Type mismatch in for-update: cannot assign {rhs_type or 'unknown'} "
+                f"to {sym.type_name} variable '{upd.identifier}'."
+            ),
+            node=upd,
+        ))
+
+
+def _analyze_for_statement_ast(
+    stmt: ForStatement,
+    scopes: List[Dict[str, SymbolInfo]],
+    struct_types: Dict[str, Dict[str, str]],
+    function_table: Dict[str, List[FunctionInfo]],
+    errors: List[SemanticError],
+    ctx: AnalysisContext,
+) -> None:
+    """
+    for-init may declare a loop variable (scoped to the whole for-statement)
+    or assign to an existing variable.
+    Condition/update share that scope; body is a nested block with loop depth +1.
+    """
+    pushed_for_scope = False
+    if stmt.init is not None:
+        init = stmt.init
+        if init.data_type is not None:
+            scopes.append({})
+            pushed_for_scope = True
+            fake_decl = Declaration(
+                line=init.line,
+                column=init.column,
+                data_type=init.data_type,
+                identifier=init.identifier,
+                array_dimensions=0,
+                initial_value=init.value,
+                is_const=False,
+                multi_declarations=[],
+            )
+            _declare_variable_ast(
+                fake_decl,
+                scopes,
+                struct_types,
+                function_table,
+                errors,
+            )
+        else:
+            sym = _lookup(scopes, init.identifier)
+            if sym is None:
+                errors.append(SemanticError(
+                    message=f"Undeclared identifier '{init.identifier}' in for-init.",
+                    node=init,
+                ))
+            elif sym.is_const:
+                errors.append(SemanticError(
+                    message=f"Cannot assign to const variable '{init.identifier}' in for-init.",
+                    node=init,
+                ))
+            else:
+                rhs_type = _infer_expression_type_ast(
+                    init.value,
+                    scopes,
+                    struct_types,
+                    function_table,
+                    errors,
+                )
+                if not _is_assignable(sym.type_name, rhs_type):
+                    errors.append(SemanticError(
+                        message=(
+                            f"Type mismatch in for-init: cannot assign {rhs_type or 'unknown'} "
+                            f"to {sym.type_name} variable '{init.identifier}'."
+                        ),
+                        node=init,
+                    ))
+
+    if stmt.condition is not None:
+        _require_bool_convertible_condition(
+            stmt.condition,
+            stmt,
+            scopes,
+            struct_types,
+            function_table,
+            errors,
+        )
+    if stmt.update is not None:
+        _analyze_for_update_ast(
+            stmt.update,
+            scopes,
+            struct_types,
+            function_table,
+            errors,
+        )
+
+    body_ctx = replace(ctx, loop_depth=ctx.loop_depth + 1)
+    _analyze_body_ast(
+        stmt.body,
+        scopes,
+        struct_types,
+        function_table,
+        errors,
+        body_ctx,
+    )
+
+    if pushed_for_scope:
+        scopes.pop()
+
+
 def _analyze_namespace_ast(
     ns: Namespace,
     scopes: List[Dict[str, SymbolInfo]],
@@ -459,7 +857,16 @@ def _analyze_function_ast(
         )
         _declare_variable_ast(fake_decl, scopes, struct_types, function_table, errors)
 
-    _analyze_body_ast(fn.body, scopes, struct_types, function_table, errors)
+    fn_ctx = AnalysisContext(return_type=fn.return_type)
+    _analyze_body_ast(fn.body, scopes, struct_types, function_table, errors, fn_ctx)
+    if fn.return_type is not None and not _body_definitely_returns_with_value(fn.body):
+        errors.append(SemanticError(
+            message=(
+                f"Not all control paths return a value of type '{fn.return_type}' "
+                f"in function '{fn.name}'."
+            ),
+            node=fn,
+        ))
     scopes.pop()
 
 
@@ -472,7 +879,8 @@ def _analyze_main_ast(
 ) -> None:
     # Main function gets its own scope.
     scopes.append({})
-    _analyze_body_ast(main.body, scopes, struct_types, function_table, errors)
+    main_ctx = AnalysisContext(return_type=None)  # love() is void (avoidant)
+    _analyze_body_ast(main.body, scopes, struct_types, function_table, errors, main_ctx)
     scopes.pop()
 
 
@@ -482,14 +890,14 @@ def _analyze_body_ast(
     struct_types: Dict[str, Dict[str, str]],
     function_table: Dict[str, List[FunctionInfo]],
     errors: List[SemanticError],
+    ctx: AnalysisContext,
 ) -> None:
     # Declarations at top of the block in the current scope.
     for decl in body.local_declarations:
         _declare_variable_ast(decl, scopes, struct_types, function_table, errors)
 
-    # Statements will be analyzed incrementally as you add checks.
     for stmt in body.statements:
-        _analyze_statement_ast(stmt, scopes, struct_types, function_table, errors)
+        _analyze_statement_ast(stmt, scopes, struct_types, function_table, errors, ctx)
 
 
 def _analyze_statement_ast(
@@ -498,20 +906,87 @@ def _analyze_statement_ast(
     struct_types: Dict[str, Dict[str, str]],
     function_table: Dict[str, List[FunctionInfo]],
     errors: List[SemanticError],
+    ctx: AnalysisContext,
 ) -> None:
     """
-    Statement-level semantic checks.
-
-    Current responsibilities:
-    - Assignments: const assignment + basic type compatibility
-    - Conditions: run expression inference for logical/arithmetic checks
-      in if/while/do-while/for and switch.
-
-    You can extend this later for:
-    - function calls
-    - returns
-    - switch/case body rules, etc.
+    Statement-level semantic checks: assignments, control flow, I/O,
+    comeback typing, breakup/moveon placement, for-init/update, ++/--.
     """
+    # comeback [expr];
+    if isinstance(stmt, ReturnStatement):
+        if ctx.return_type is None:
+            if stmt.value is not None:
+                errors.append(SemanticError(
+                    message="avoidant (void) function cannot return a value.",
+                    node=stmt,
+                ))
+        else:
+            if stmt.value is None:
+                errors.append(SemanticError(
+                    message=(
+                        f"comeback must provide a value of type '{ctx.return_type}' "
+                        f"for this function."
+                    ),
+                    node=stmt,
+                ))
+            else:
+                val_type = _infer_expression_type_ast(
+                    stmt.value,
+                    scopes,
+                    struct_types,
+                    function_table,
+                    errors,
+                )
+                if not _is_assignable(ctx.return_type, val_type):
+                    errors.append(SemanticError(
+                        message=(
+                            f"comeback type mismatch: cannot return {val_type or 'unknown'} "
+                            f"from a function with return type '{ctx.return_type}'."
+                        ),
+                        node=stmt,
+                    ))
+        return
+
+    # breakup;
+    if isinstance(stmt, BreakStatement):
+        if ctx.loop_depth == 0 and ctx.switch_depth == 0:
+            errors.append(SemanticError(
+                message="'breakup' is only valid inside a loop or choose statement.",
+                node=stmt,
+            ))
+        return
+
+    # moveon;
+    if isinstance(stmt, ContinueStatement):
+        if ctx.loop_depth == 0:
+            errors.append(SemanticError(
+                message="'moveon' is only valid inside a loop.",
+                node=stmt,
+            ))
+        return
+
+    # give >> id; / overshare(id);
+    if isinstance(stmt, InputStatement):
+        sym = _lookup(scopes, stmt.identifier)
+        if sym is None:
+            errors.append(SemanticError(
+                message=f"Undeclared identifier '{stmt.identifier}'.",
+                node=stmt,
+            ))
+            return
+        if sym.is_const:
+            errors.append(SemanticError(
+                message=f"Cannot read input into const variable '{stmt.identifier}'.",
+                node=stmt,
+            ))
+        return
+
+    # ++id; id++; --id; id--;
+    if isinstance(stmt, UnaryStatement):
+        sym = _lookup(scopes, stmt.identifier)
+        _validate_incdec_symbol(sym, stmt.identifier, stmt, errors)
+        return
+
     # Assignments
     if isinstance(stmt, AssignmentStatement):
         sym = _lookup(scopes, stmt.identifier)
@@ -527,57 +1002,83 @@ def _analyze_statement_ast(
                 message=f"Cannot assign to const variable '{stmt.identifier}'.",
                 node=stmt,
             ))
+            return
 
-        rhs_type = _infer_expression_type_ast(stmt.value, scopes, struct_types, function_table, errors)
-        if not _is_assignable(sym.type_name, rhs_type):
-            errors.append(SemanticError(
-                message=(
-                    f"Type mismatch: cannot assign {rhs_type or 'unknown'} "
-                    f"to {sym.type_name} variable '{stmt.identifier}'."
-                ),
-                node=stmt,
-            ))
+        _validate_assignment_indices_and_rhs(
+            stmt, sym, scopes, struct_types, function_table, errors,
+        )
         return
 
     # If / else-if / else
     if isinstance(stmt, IfStatement):
-        _infer_expression_type_ast(stmt.condition, scopes, struct_types, function_table, errors)
-        _analyze_body_ast(stmt.then_body, scopes, struct_types, function_table, errors)
+        _require_bool_convertible_condition(
+            stmt.condition, stmt, scopes, struct_types, function_table, errors,
+        )
+        _analyze_body_ast(stmt.then_body, scopes, struct_types, function_table, errors, ctx)
         for clause in stmt.elif_clauses:
-            _infer_expression_type_ast(clause.condition, scopes, struct_types, function_table, errors)
-            _analyze_body_ast(clause.body, scopes, struct_types, function_table, errors)
+            _require_bool_convertible_condition(
+                clause.condition, clause, scopes, struct_types, function_table, errors,
+            )
+            _analyze_body_ast(clause.body, scopes, struct_types, function_table, errors, ctx)
         if stmt.else_body is not None:
-            _analyze_body_ast(stmt.else_body, scopes, struct_types, function_table, errors)
+            _analyze_body_ast(stmt.else_body, scopes, struct_types, function_table, errors, ctx)
         return
 
     # While
     if isinstance(stmt, WhileStatement):
-        _infer_expression_type_ast(stmt.condition, scopes, struct_types, function_table, errors)
-        _analyze_body_ast(stmt.body, scopes, struct_types, function_table, errors)
+        _require_bool_convertible_condition(
+            stmt.condition, stmt, scopes, struct_types, function_table, errors,
+        )
+        loop_ctx = replace(ctx, loop_depth=ctx.loop_depth + 1)
+        _analyze_body_ast(stmt.body, scopes, struct_types, function_table, errors, loop_ctx)
         return
 
     # Do-while (pursue)
     if isinstance(stmt, DoWhileStatement):
-        _analyze_body_ast(stmt.body, scopes, struct_types, function_table, errors)
-        _infer_expression_type_ast(stmt.condition, scopes, struct_types, function_table, errors)
+        loop_ctx = replace(ctx, loop_depth=ctx.loop_depth + 1)
+        _analyze_body_ast(stmt.body, scopes, struct_types, function_table, errors, loop_ctx)
+        _require_bool_convertible_condition(
+            stmt.condition, stmt, scopes, struct_types, function_table, errors,
+        )
         return
 
     # For
     if isinstance(stmt, ForStatement):
-        # For now, only validate the condition expression if present.
-        if stmt.condition is not None:
-            _infer_expression_type_ast(stmt.condition, scopes, struct_types, function_table, errors)
-        _analyze_body_ast(stmt.body, scopes, struct_types, function_table, errors)
+        _analyze_for_statement_ast(
+            stmt,
+            scopes,
+            struct_types,
+            function_table,
+            errors,
+            ctx,
+        )
         return
 
     # Switch (choose)
     if isinstance(stmt, SwitchStatement):
-        _infer_expression_type_ast(stmt.expression, scopes, struct_types, function_table, errors)
-        # Case/default bodies are regular FunctionBody instances.
+        switch_ctx = replace(ctx, switch_depth=ctx.switch_depth + 1)
+        disc_t = _infer_expression_type_ast(
+            stmt.expression,
+            scopes,
+            struct_types,
+            function_table,
+            errors,
+        )
+        if disc_t is not None:
+            for case in stmt.cases:
+                lit_t = _case_literal_type(case.value)
+                if disc_t != lit_t:
+                    errors.append(SemanticError(
+                        message=(
+                            f"choose discriminant has type '{disc_t}' but "
+                            f"phase literal has type '{lit_t}' (must match)."
+                        ),
+                        node=case,
+                    ))
         for case in stmt.cases:
-            _analyze_body_ast(case.body, scopes, struct_types, function_table, errors)
+            _analyze_body_ast(case.body, scopes, struct_types, function_table, errors, switch_ctx)
         if stmt.default_case is not None:
-            _analyze_body_ast(stmt.default_case, scopes, struct_types, function_table, errors)
+            _analyze_body_ast(stmt.default_case, scopes, struct_types, function_table, errors, switch_ctx)
         return
 
     # Output: express << value [<< value ...] [<< periodt];
@@ -595,8 +1096,7 @@ def _analyze_statement_ast(
         # functions as statements is always allowed (like C++).
         return
 
-    # Other statement types (I/O, unary inc/dec, etc.) have no expression
-    # semantics wired yet; they can be handled later as needed.
+    # Unknown / unhandled statement kind — no-op.
     return
 
 
@@ -608,24 +1108,12 @@ def _infer_expression_type_ast(
     errors: List[SemanticError],
 ) -> Optional[str]:
     """
-    AST-based expression type inference.
+    Infer the type of an expression.
 
-    Current responsibilities:
-    - Literals: dear/dearest/rant/status
-    - Identifiers: lookup in scopes, report undeclared usage
-    - Unary '!': forbid rant, result is status
-    - Binary logical (&&, ||): forbid rant operands, result is status
-    - Binary comparisons (==, !=, <, >, <=, >=): result is status
-    - Binary arithmetic (+, -, *, /, %):
-        - For -, *, /, %: forbid rant operands
-        - For +: support rant concatenation if any operand is rant
-        - Numeric result type: dear/dearest/status based on operands
-
-    This function can be extended later to handle:
-    - FunctionCallExpression
-    - MemberAccessExpression
-    - ArrayLiteralExpression
-    - ParenthesizedExpression
+    Handles literals, identifiers (with array indices), parenthesized expressions,
+    unary operators, binary operators, member access, function calls, and
+    array literals. Array literals yield the sentinel type `ARRAY_LITERAL_EXPR_TYPE`
+    (not assignable to scalars via `_is_assignable`).
     """
     if expr is None:
         return None
@@ -790,7 +1278,15 @@ def _infer_expression_type_ast(
 
         return info.return_type
 
-    # Other expression kinds (calls, member access, arrays) will be handled later.
+    # Array literal `{ e1, e2, ... }` in expression position
+    if isinstance(expr, ArrayLiteralExpression):
+        item_types = [
+            _infer_expression_type_ast(item, scopes, struct_types, function_table, errors)
+            for item in expr.items
+        ]
+        _unify_array_literal_element_types(item_types, expr, errors)
+        return ARRAY_LITERAL_EXPR_TYPE
+
     return None
 
 

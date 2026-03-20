@@ -15,11 +15,13 @@
   max-width: 100%;
   overflow: hidden;       /* keep extra content inside; textarea will scroll */
   width: 100%;            /* ensure editor fills its container instead of growing */
-  min-width: 0%;           /* allow the editor to shrink in flex layouts (prevents expansion) */
+  min-width: 0;           /* allow the editor to shrink in flex / grid layouts */
   box-sizing: border-box;
-    background: #875656;
-     margin-left: 10px;
-    
+  background: #875656;
+  /* Don’t add horizontal margin here: width 100% + margin overflows the panel and
+     overflow:hidden clips the right border. Spacing uses the grid gap in App.css. */
+  margin-left: 0;
+  margin-right: 0;
 }
 
 /* --- Editor body: gutter + textarea --- */

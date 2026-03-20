@@ -14,7 +14,15 @@ from Backend.Semantic import analyze_semantics
 debug = os.environ.get("FLASK_DEBUG", "0") == "1"
 
 app = Flask(__name__)
-CORS(app, resources={r"/lex": {"origins": "*"}, r"/validate": {"origins": "*"}})
+CORS(
+    app,
+    resources={
+        r"/lex": {"origins": "*"},
+        r"/validate": {"origins": "*"},
+        r"/run": {"origins": "*"},
+        r"/tac": {"origins": "*"},
+    },
+)
 
 
 @app.get("/")
@@ -135,8 +143,65 @@ def validate():
     return jsonify({
         "ok": True,
         "message": f"Syntax OK - No errors found (using {parser_type} parser)",
-        "parser": parser_type
+        "parser": parser_type,
     }), 200
+
+
+@app.post("/run")
+def run_program():
+    """Lex → syntax → semantic → AST → TAC (ICG) → VM. Optional `stdin` string for input."""
+    payload = request.get_json(silent=True) or {}
+    source = payload.get("source", "")
+    stdin = payload.get("stdin", "")
+
+    if not isinstance(source, str):
+        return jsonify({"error": "`source` must be a string"}), 400
+    if not isinstance(stdin, str):
+        stdin = ""
+
+    if not source.strip():
+        return jsonify({
+            "ok": False,
+            "message": "A main program is needed in order to run.",
+            "code": "ERR_EMPTY",
+        }), 400
+
+    from Backend.IR.exec import run_lovers_source
+
+    stdout, stderr, err = run_lovers_source(source, stdin=stdin)
+    if err is not None:
+        return jsonify({"ok": False, **err}), 200
+
+    return jsonify({
+        "ok": True,
+        "stdout": stdout or "",
+        "stderr": stderr or "",
+    }), 200
+
+
+@app.post("/tac")
+def tac_program():
+    """Lex → syntax → semantic → AST → three-address code (ICG)."""
+    payload = request.get_json(silent=True) or {}
+    source = payload.get("source", "")
+
+    if not isinstance(source, str):
+        return jsonify({"error": "`source` must be a string"}), 400
+
+    if not source.strip():
+        return jsonify({
+            "ok": False,
+            "message": "A main program is needed in order to run.",
+            "code": "ERR_EMPTY",
+        }), 400
+
+    from Backend.IR.tac import lovers_source_to_tac
+
+    tac_text, err = lovers_source_to_tac(source)
+    if err is not None:
+        return jsonify({"ok": False, **err}), 200
+
+    return jsonify({"ok": True, "tac": tac_text or ""}), 200
 
 
 if __name__ == "__main__":

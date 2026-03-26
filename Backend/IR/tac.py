@@ -97,6 +97,8 @@ class Quad:
             return f"{self.arg1}.{self.arg2} = {self.res}"
         if o == "STRCAT":
             return f"{self.res} = strcat({self.arg1}, {self.arg2})"
+        if o == "STRLEN":
+            return f"{self.res} = strlen({self.arg1})"
         if o in {"ADD", "SUB", "MUL", "DIV", "MOD", "EQ", "NE", "LT", "LE", "GT", "GE", "LAND", "LOR"}:
             return f"{self.res} = {self.arg1} {o} {self.arg2}"
         if o in {"NEG", "NOT", "LNOT"}:
@@ -187,6 +189,8 @@ def format_tac_human_line(q: Quad) -> str:
         return f"{a1}.{a2} = {r}"
     if o == "STRCAT":
         return f"{r} = strcat({a1}, {a2})"
+    if o == "STRLEN":
+        return f"{r} = strlen({a1})"
     if o in _BINOP_INFIX:
         sym = _BINOP_INFIX[o]
         return f"{r} = {a1} {sym} {a2}"
@@ -396,6 +400,13 @@ class TacEmitter:
             self.emit("MEMBER_LOAD", obj, expr.member, tt)
             return tt
         if isinstance(expr, FunctionCallExpression):
+            if expr.namespace is None and expr.identifier == "length":
+                if len(expr.arguments) != 1:
+                    raise TacGenError("length(...) expects exactly one argument", expr)
+                arg = self.emit_expr(expr.arguments[0])
+                t = self.fresh_temp()
+                self.emit("STRLEN", arg, None, t)
+                return t
             return self._emit_call(expr.identifier, expr.namespace, expr.arguments, expr)
         if isinstance(expr, ArrayLiteralExpression):
             raise TacGenError("array literal not allowed here", expr)

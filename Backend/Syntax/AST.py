@@ -929,7 +929,20 @@ class RecursiveDescentAstBuilder:
             while self._kind() == ".":
                 self._expect(".", "Expected `.`")
                 mem = self._expect("id", "Expected member name after `.`")
-                expr = MemberAccessExpression(line=mem.line, column=mem.column, object=expr, member=mem.lexeme)
+                # Sugar: allow `a.length()` and lower it to builtin call `length(a)`.
+                if mem.lexeme == "length" and self._kind() == "(":
+                    args = self._parse_call_arguments()
+                    if args:
+                        raise AstBuildError("`length()` takes no arguments in method form", mem.line, mem.column)
+                    expr = FunctionCallExpression(
+                        line=mem.line,
+                        column=mem.column,
+                        identifier="length",
+                        namespace=None,
+                        arguments=[expr],
+                    )
+                else:
+                    expr = MemberAccessExpression(line=mem.line, column=mem.column, object=expr, member=mem.lexeme)
 
             return expr
 

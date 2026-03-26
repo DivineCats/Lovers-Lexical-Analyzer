@@ -237,12 +237,23 @@ class TacVM:
                 self._set(q.res, self.stdin.read_rant_line())
                 self.ip += 1
                 continue
+            if op == "STRLEN":
+                self._set(q.res, len(str(self._load(q.arg1))))
+                self.ip += 1
+                continue
             if op == "INDEX_LOAD":
                 base = self._load(q.arg1)
                 idx = int(self._load(q.arg2))
-                if not isinstance(base, list) or idx < 0 or idx >= len(base):
-                    raise VMError("bad array index load")
-                self._set(q.res, base[idx])
+                if isinstance(base, list):
+                    if idx < 0 or idx >= len(base):
+                        raise VMError("bad array index load")
+                    self._set(q.res, base[idx])
+                elif isinstance(base, str):
+                    if idx < 0 or idx >= len(base):
+                        raise VMError("bad string index load")
+                    self._set(q.res, base[idx])
+                else:
+                    raise VMError("INDEX_LOAD on non-indexable value")
                 self.ip += 1
                 continue
             if op == "INDEX_STORE":

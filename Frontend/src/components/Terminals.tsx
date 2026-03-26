@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import "./Terminals.css";
 import {
   getConstructionHint,
@@ -67,6 +67,96 @@ type Props = {
 
 type TabType = "lexical" | "syntax" | "semantic" | "output" | "tac";
 
+type TacQuadRow = {
+  index: string;
+  op: string;
+  arg1: string;
+  arg2: string;
+  result: string;
+};
+
+function parseTacLineToQuad(index: string, line: string): TacQuadRow {
+  const mk = (op: string, arg1 = "", arg2 = "", result = ""): TacQuadRow => ({
+    index,
+    op,
+    arg1: arg1.trim(),
+    arg2: arg2.trim(),
+    result: result.trim(),
+  });
+  const s = line.trim();
+  if (!s) return mk("");
+  if (s.startsWith("//")) return mk("//", s.slice(2).trim());
+  if (s.endsWith(":")) return mk("label", "", "", s.slice(0, -1).trim());
+
+  let m = s.match(/^if(False|True)\s+(.+)\s+goto\s+(.+)$/i);
+  if (m) return mk(`if ${m[1].toUpperCase()}`, m[2], "", m[3]);
+
+  m = s.match(/^goto\s+(.+)$/i);
+  if (m) return mk("goto", "", "", m[1]);
+
+  m = s.match(/^return(?:\s+(.+))?$/i);
+  if (m) return mk("return", m[1] ?? "");
+
+  m = s.match(/^printNewline$/i);
+  if (m) return mk("printNewline");
+
+  m = s.match(/^print\s+(.+)$/i);
+  if (m) return mk("print", m[1]);
+
+  m = s.match(/^param\s+(.+)$/i);
+  if (m) return mk("param", m[1]);
+
+  m = s.match(/^(.+)\s*=\s*call\s+([^,]+),\s*(.+)$/i);
+  if (m) return mk("call", m[2], m[3], m[1]);
+
+  m = s.match(/^call\s+([^,]+),\s*(.+)$/i);
+  if (m) return mk("call", m[1], m[2]);
+
+  m = s.match(/^(.+)\s*=\s*recv_param\s+(.+)$/i);
+  if (m) return mk("recv_param", m[2], "", m[1]);
+
+  m = s.match(/^(.+)\s*=\s*strcat\((.+),\s*(.+)\)$/i);
+  if (m) return mk("strcat", m[2], m[3], m[1]);
+
+  m = s.match(/^(.+)\s*=\s*(.+)\[(.+)\]$/);
+  if (m) return mk("[]", m[2], m[3], m[1]);
+
+  m = s.match(/^(.+)\[(.+)\]\s*=\s*(.+)$/);
+  if (m) return mk("[]=", m[3], m[2], m[1]);
+
+  m = s.match(/^(.+)\s*=\s*(.+)\.(.+)$/);
+  if (m) return mk(".", m[2], m[3], m[1]);
+
+  m = s.match(/^(.+)\.(.+)\s*=\s*(.+)$/);
+  if (m) return mk(".=", m[3], m[2], m[1]);
+
+  m = s.match(/^(.+)\s*=\s*(.+)\s+(\|\||&&|==|!=|<=|>=|<|>|\+|-|\*|\/|%)\s+(.+)$/);
+  if (m) return mk(m[3], m[2], m[4], m[1]);
+
+  m = s.match(/^(.+)\s*=\s*([!~\-])\s*(.+)$/);
+  if (m) return mk(m[2], m[3], "", m[1]);
+
+  m = s.match(/^(.+)\s*=\s*(.+)$/);
+  if (m) return mk("=", m[2], "", m[1]);
+
+  return mk(s);
+}
+
+function parseTacTextToRows(tacText: string): TacQuadRow[] {
+  const rows: TacQuadRow[] = [];
+  for (const raw of tacText.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line) continue;
+    const indexed = line.match(/^\((\d+)\)\s*(.*)$/);
+    if (indexed) {
+      rows.push(parseTacLineToQuad(indexed[1], indexed[2]));
+    } else {
+      rows.push(parseTacLineToQuad("", line));
+    }
+  }
+  return rows;
+}
+
 export default function Terminal({
   source = null,
   validation = null,
@@ -85,7 +175,8 @@ export default function Terminal({
     activeTab === "syntax" ||
     activeTab === "semantic";
 
-  // Auto-switch to first tab that has errors: lexical first, then syntax if no lexical
+  // Auto-switch to first tab that has errors: lexical first, then syntax, then semantic.
+  // If no analyzer errors remain, jump to Output by default.
   useEffect(() => {
     const hasLexical = lexErrors.length > 0 || (lexError != null && lexError.trim() !== "");
     const hasSyntax = validation != null && !validation.ok && validation.code !== "ERR_SEMANTIC";
@@ -93,6 +184,7 @@ export default function Terminal({
     if (hasLexical) setActiveTab("lexical");
     else if (hasSyntax) setActiveTab("syntax");
     else if (hasSemantic) setActiveTab("semantic");
+    else setActiveTab("output");
   }, [lexErrors.length, lexError, validation]);
 
   // Parse all errors into structured format
@@ -227,9 +319,26 @@ export default function Terminal({
   const backendCount = errors.filter(e => e.type === "backend").length;
   const hasErrors = lexicalCount > 0 || syntaxCount > 0 || semanticCount > 0 || backendCount > 0;
 
-  // Check if we should show the "resolve lexical first" prompt
+  // Gated analyzer counters (pipeline-style):
+  // - lexical errors also block syntax + semantic
+  // - syntax errors block semantic
   const hasLexicalErrors = lexicalCount > 0;
-  const syntaxDisplayCount = syntaxCount + (hasLexicalErrors ? 1 : 0);
+  const hasSyntaxErrors = syntaxCount > 0;
+  const syntaxDisplayCount = hasLexicalErrors ? lexicalCount : syntaxCount;
+  const semanticDisplayCount = hasLexicalErrors
+    ? lexicalCount
+    : hasSyntaxErrors
+      ? syntaxCount
+      : semanticCount;
+  const isSyntaxBlocked = hasLexicalErrors;
+  const isSemanticBlocked = hasLexicalErrors || hasSyntaxErrors;
+  const hasAnalyzerErrors = lexicalCount > 0 || syntaxCount > 0 || semanticCount > 0;
+  const hasOutputContent = programStdout != null || Boolean(programRunError?.message);
+  const hasTacContent = (tacText != null && tacText.length > 0) || Boolean(tacError?.message);
+  const tacRows = useMemo(
+    () => (tacText && tacText.length > 0 ? parseTacTextToRows(tacText) : []),
+    [tacText]
+  );
 
   const filteredErrors = errors.filter(error => error.type === activeTab);
 
@@ -254,17 +363,19 @@ export default function Terminal({
             className={`tab-button ${activeTab === "semantic" ? "active" : ""}`}
             onClick={() => setActiveTab("semantic")}
           >
-            Semantic ({semanticCount})
+            Semantic ({semanticDisplayCount})
           </button>
           <button
             className={`tab-button ${activeTab === "output" ? "active" : ""}`}
             onClick={() => setActiveTab("output")}
+            disabled={!hasOutputContent && hasAnalyzerErrors}
           >
             Output
           </button>
           <button
             className={`tab-button ${activeTab === "tac" ? "active" : ""}`}
             onClick={() => setActiveTab("tac")}
+            disabled={!hasTacContent}
           >
             TAC
           </button>
@@ -287,18 +398,14 @@ export default function Terminal({
               </div>
             ) : programStdout != null ? (
               <>
-                <div className="c-gen-hint">Program output (interpreter). Uses backend POST /run.</div>
+                <div className="c-gen-hint">== LOVE OF MY LIFE EXECUTED SUCCESFULLY &lt;3 ==</div>
                 {programStdout.length > 0 ? (
                   <pre className="c-source-pre" tabIndex={0}>{programStdout}</pre>
                 ) : (
                   <div className="term-log__empty">(no output)</div>
                 )}
-              </>
-            ) : (
-              <div className="term-log__empty">
-                Click <strong>Run</strong> when there are no errors to execute <code>love ()</code> and see <code>express</code> output here.
-              </div>
-            )}
+              </> 
+            ) : null}
           </div>
         )}
         {activeTab === "tac" && (
@@ -317,17 +424,46 @@ export default function Terminal({
               </div>
             ) : tacText != null && tacText.length > 0 ? (
               <>
-                <div className="c-gen-hint">Three-address code (intermediate). Emitted after semantic analysis.</div>
-                <pre className="c-source-pre" tabIndex={0}>{tacText}</pre>
+                <div className="c-gen-hint">== TAC ==</div>
+                {tacRows.length > 0 ? (
+                  <div className="tac-split">
+                    <pre className="tac-list-pre" tabIndex={0}>{tacText}</pre>
+                    <div className="tac-table-wrap" tabIndex={0}>
+                      <table className="tac-table">
+                        <thead>
+                          <tr>
+                            <th>Index</th>
+                            <th>op</th>
+                            <th>arg1</th>
+                            <th>arg2</th>
+                            <th>result</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {tacRows.map((row, i) => (
+                            <tr key={`${row.index}-${i}`}>
+                              <td>{row.index ? `(${row.index})` : ""}</td>
+                              <td>{row.op}</td>
+                              <td>{row.arg1}</td>
+                              <td>{row.arg2}</td>
+                              <td>{row.result}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <pre className="c-source-pre" tabIndex={0}>{tacText}</pre>
+                )}
               </>
-            ) : (
-              <div className="term-log__empty">
-                Fix all analyzer errors; TAC is generated when the program validates (POST <code>/tac</code>).
-              </div>
-            )}
+            ) : null}
           </div>
         )}
-        {isErrorTab && filteredErrors.length === 0 && !(hasLexicalErrors && activeTab === "syntax") && (
+        {isErrorTab &&
+          filteredErrors.length === 0 &&
+          !(activeTab === "syntax" && isSyntaxBlocked) &&
+          !(activeTab === "semantic" && isSemanticBlocked) && (
           <div className="term-log__empty">
             {hasErrors ? `No ${activeTab} errors detected.` : "No errors detected."}
           </div>
@@ -418,11 +554,24 @@ export default function Terminal({
           );
         })}
         {/* Show prompt to resolve lexical errors first before syntax analysis */}
-        {isErrorTab && hasLexicalErrors && activeTab === "syntax" && (
+        {isErrorTab && isSyntaxBlocked && activeTab === "syntax" && (
           <div className="error-container">
             <div className="error-item">
               <span className="error-badge error-badge--syntax">SYNTAX</span>
               <span className="error-message">Lexical errors detected. Resolve them before syntax analysis.</span>
+            </div>
+          </div>
+        )}
+        {/* Show prompt for semantic gating by earlier phases */}
+        {isErrorTab && activeTab === "semantic" && isSemanticBlocked && (
+          <div className="error-container">
+            <div className="error-item">
+              <span className="error-badge error-badge--semantic">SEMANTIC</span>
+              <span className="error-message">
+                {hasLexicalErrors
+                  ? "Lexical errors detected. Resolve them before semantic analysis."
+                  : "Syntax errors detected. Resolve them before semantic analysis."}
+              </span>
             </div>
           </div>
         )}

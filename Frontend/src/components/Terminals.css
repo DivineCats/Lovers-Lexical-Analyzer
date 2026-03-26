@@ -16,6 +16,95 @@
   flex-shrink: 0;
 }
 
+.c-source-pre {
+  margin: 0;
+  padding: 10px;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  font-family: ui-monospace, "Cascadia Code", "Consolas", monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  color: #f0e6e8;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 191, 191, 0.18);
+  border-radius: 8px;
+  white-space: pre;
+  tab-size: 4;
+}
+
+.tac-split {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(360px, 1.8fr);
+  gap: 10px;
+  flex: 1;
+  min-height: 0;
+}
+
+.tac-list-pre {
+  margin: 0;
+  padding: 10px;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid rgba(255, 191, 191, 0.18);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+  color: #f0e6e8;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre;
+}
+
+.tac-table-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid rgba(255, 191, 191, 0.18);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.tac-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  font-size: 13px;
+  color: #f6e7e7;
+}
+
+.tac-table th,
+.tac-table td {
+  border: 1px solid rgba(255, 191, 191, 0.16);
+  padding: 8px 10px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tac-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #6d4f50;
+  color: #fff;
+  font-weight: 700;
+}
+
+.tac-table tbody tr:nth-child(odd) {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.tac-table tbody tr:nth-child(even) {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+.tac-table tbody tr:hover {
+  background: rgba(233, 30, 99, 0.12);
+}
+
 
 .terminal-panel {
   display: grid;
@@ -87,6 +176,12 @@
   border-color: #e91e63;
   border-bottom-color: var(--term-log-bg, #2b0c0c);
   color: #fff;
+}
+
+.tab-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 .error-summary {
@@ -351,16 +446,32 @@
 }
 
 .term-log::-webkit-scrollbar,
-.tokens__body::-webkit-scrollbar {
+.tokens__body::-webkit-scrollbar,
+.tac-list-pre::-webkit-scrollbar,
+.tac-table-wrap::-webkit-scrollbar {
   height: 10px;
   width: 12px;
 }
 
+.tac-list-pre::-webkit-scrollbar-track,
+.tac-table-wrap::-webkit-scrollbar-track {
+  background: rgba(255, 191, 191, 0.03);
+  border-radius: 8px;
+}
+
 .term-log::-webkit-scrollbar-thumb,
-.tokens__body::-webkit-scrollbar-thumb {
+.tokens__body::-webkit-scrollbar-thumb,
+.tac-list-pre::-webkit-scrollbar-thumb,
+.tac-table-wrap::-webkit-scrollbar-thumb {
   background: linear-gradient(180deg, rgba(255, 191, 191, 0.7), rgba(255, 191, 191, 0.5));
   border-radius: 8px;
   border: 3px solid rgba(0, 0, 0, 0.12);
+}
+
+.tac-list-pre,
+.tac-table-wrap {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 191, 191, 0.7) rgba(255, 191, 191, 0.03);
 }
 
 /* Remove the browser default focus outline that creates the yellow “envelope” box */
@@ -377,6 +488,11 @@
 
 
 @media (max-width: 900px) {
+  .tac-split {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(120px, 0.9fr) minmax(160px, 1.1fr);
+  }
+
   .terminal-panel {
     min-height: 160px;
   }

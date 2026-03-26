@@ -879,7 +879,9 @@ def _analyze_main_ast(
 ) -> None:
     # Main function gets its own scope.
     scopes.append({})
-    main_ctx = AnalysisContext(return_type=None)  # love() is void (avoidant)
+    # C++-like behavior: love() may use `comeback <dear expr>` but may also omit comeback.
+    # (Fall-through is handled by codegen/VM as an implicit 0.)
+    main_ctx = AnalysisContext(return_type="dear")
     _analyze_body_ast(main.body, scopes, struct_types, function_table, errors, main_ctx)
     scopes.pop()
 
@@ -1140,7 +1142,7 @@ def _infer_expression_type_ast(
             ))
             return None
 
-        # Array index type checks: each index must be dear or status.
+        # Array / string index type checks: each index must be dear or status.
         for idx_expr in expr.array_indices:
             idx_type = _infer_expression_type_ast(idx_expr, scopes, struct_types, function_table, errors)
             if idx_type is not None and idx_type not in {"dear", "status"}:
@@ -1152,6 +1154,21 @@ def _infer_expression_type_ast(
                     node=idx_expr,
                 ))
 
+        if expr.array_indices:
+            if sym.type_name == "rant":
+                if len(expr.array_indices) > 1:
+                    errors.append(SemanticError(
+                        message=f"String '{expr.name}' supports only one index dimension.",
+                        node=expr,
+                    ))
+                # Character result is still modeled as rant.
+                return "rant"
+            if sym.array_dimensions <= 0:
+                errors.append(SemanticError(
+                    message=f"Cannot subscript non-array variable '{expr.name}'.",
+                    node=expr,
+                ))
+                return None
         return sym.type_name
 
     # Parenthesized
@@ -1263,6 +1280,25 @@ def _infer_expression_type_ast(
 
     # Function call in expression
     if isinstance(expr, FunctionCallExpression):
+        # Builtin: length(rant) -> dear
+        if expr.namespace is None and expr.identifier == "length":
+            if len(expr.arguments) != 1:
+                errors.append(SemanticError(
+                    message="Builtin 'length' expects exactly one argument.",
+                    node=expr,
+                ))
+                return None
+            arg_t = _infer_expression_type_ast(
+                expr.arguments[0], scopes, struct_types, function_table, errors
+            )
+            if arg_t != "rant":
+                errors.append(SemanticError(
+                    message=f"Builtin 'length' expects rant, got {arg_t or 'unknown'}.",
+                    node=expr,
+                ))
+                return None
+            return "dear"
+
         name = expr.identifier  # already fully qualified like "Tools::triple" if needed
         info = _resolve_overload(name, expr.arguments, expr, scopes, struct_types, function_table, errors)
         if info is None:

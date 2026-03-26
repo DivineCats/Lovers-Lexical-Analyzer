@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple
 
-from Backend.Interpreter.interpreter import analyze_and_build_program
+from Backend.IR.pipeline import analyze_and_build_program
 from Backend.IR.tac import TacGenError, generate_tac_quads
 from Backend.IR.vm import TacVM, VMError
 

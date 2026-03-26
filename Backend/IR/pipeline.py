@@ -1,7 +1,5 @@
 """
-Pipeline for Lovers: lex → syntax → semantic → AST.
-
-Execution uses TAC + `TacVM` (see `Backend.IR.exec`).
+Frontend pipeline helpers: mangle function names and build validated AST programs.
 """
 
 from __future__ import annotations

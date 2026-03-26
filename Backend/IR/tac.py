@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from Backend.Interpreter.interpreter import mangle_function
+from Backend.IR.pipeline import analyze_and_build_program, mangle_function
 from Backend.Syntax.AST import (
     ArrayLiteralExpression,
     AssignmentStatement,
@@ -810,8 +810,6 @@ def generate_tac_text(program: Program) -> str:
 
 
 def lovers_source_to_tac(source: str) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-    from Backend.Interpreter.interpreter import analyze_and_build_program
-
     program, err = analyze_and_build_program(source)
     if err is not None:
         return None, err

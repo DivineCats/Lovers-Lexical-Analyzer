@@ -1,5 +1,6 @@
 """Intermediate representations (e.g. three-address code)."""
 
+from .pipeline import analyze_and_build_program, mangle_function
 from .tac import (
     Quad,
     TacGenError,
@@ -11,6 +12,8 @@ from .tac import (
 __all__ = [
     "Quad",
     "TacGenError",
+    "analyze_and_build_program",
+    "mangle_function",
     "format_tac_human",
     "generate_tac_text",
     "lovers_source_to_tac",

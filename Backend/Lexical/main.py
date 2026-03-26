@@ -1,4 +1,5 @@
 import os
+import uuid
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
@@ -9,6 +10,7 @@ from Backend.Syntax import parse_with_errors_parserv2, create_error_context
 from Backend.Semantic import analyze_semantics
 
 
+RUN_SESSIONS = {}
 
 
 debug = os.environ.get("FLASK_DEBUG", "0") == "1"
@@ -20,6 +22,8 @@ CORS(
         r"/lex": {"origins": "*"},
         r"/validate": {"origins": "*"},
         r"/run": {"origins": "*"},
+        r"/run/start": {"origins": "*"},
+        r"/run/input": {"origins": "*"},
         r"/tac": {"origins": "*"},
     },
 )
@@ -176,6 +180,108 @@ def run_program():
         "ok": True,
         "stdout": stdout or "",
         "stderr": stderr or "",
+    }), 200
+
+
+@app.post("/run/start")
+def run_program_start():
+    """Start interactive run and pause on input (`give`) when needed."""
+    payload = request.get_json(silent=True) or {}
+    source = payload.get("source", "")
+    stdin = payload.get("stdin", "")
+    if not isinstance(source, str):
+        return jsonify({"error": "`source` must be a string"}), 400
+    if not isinstance(stdin, str):
+        stdin = ""
+
+    if not source.strip():
+        return jsonify({
+            "ok": False,
+            "message": "A main program is needed in order to run.",
+            "code": "ERR_EMPTY",
+        }), 400
+
+    from Backend.IR.exec import create_vm_from_source
+    from Backend.IR.vm import VMError
+
+    vm, err = create_vm_from_source(source, stdin=stdin, echo_input=True)
+    if err is not None:
+        return jsonify({"ok": False, **err}), 200
+    assert vm is not None
+    try:
+        state = vm.run_until_input()
+    except VMError as exc:
+        return jsonify({
+            "ok": False,
+            "phase": "runtime",
+            "message": str(exc),
+            "stdout": vm.stdout.getvalue(),
+        }), 200
+
+    if state.get("state") == "waiting_input":
+        session_id = str(uuid.uuid4())
+        RUN_SESSIONS[session_id] = vm
+        return jsonify({
+            "ok": True,
+            "state": "waiting_input",
+            "session_id": session_id,
+            "stdout": vm.stdout.getvalue(),
+            "input_kind": state.get("kind"),
+        }), 200
+
+    return jsonify({
+        "ok": True,
+        "state": "finished",
+        "stdout": vm.stdout.getvalue(),
+        "stderr": "",
+    }), 200
+
+
+@app.post("/run/input")
+def run_program_input():
+    """Continue an interactive run by supplying one line of user input."""
+    payload = request.get_json(silent=True) or {}
+    session_id = payload.get("session_id", "")
+    user_input = payload.get("input", "")
+
+    if not isinstance(session_id, str) or not session_id.strip():
+        return jsonify({"ok": False, "message": "`session_id` is required."}), 400
+    if not isinstance(user_input, str):
+        user_input = str(user_input)
+
+    vm = RUN_SESSIONS.get(session_id)
+    if vm is None:
+        return jsonify({"ok": False, "message": "Run session not found or expired."}), 404
+
+    from Backend.IR.vm import VMError
+
+    try:
+        vm.provide_input(user_input)
+        state = vm.run_until_input()
+    except VMError as exc:
+        RUN_SESSIONS.pop(session_id, None)
+        return jsonify({
+            "ok": False,
+            "phase": "runtime",
+            "message": str(exc),
+            "stdout": vm.stdout.getvalue(),
+        }), 200
+
+    if state.get("state") == "waiting_input":
+        return jsonify({
+            "ok": True,
+            "state": "waiting_input",
+            "session_id": session_id,
+            "stdout": vm.stdout.getvalue(),
+            "input_kind": state.get("kind"),
+        }), 200
+
+    RUN_SESSIONS.pop(session_id, None)
+    return jsonify({
+        "ok": True,
+        "state": "finished",
+        "stdout": vm.stdout.getvalue(),
+        "stderr": "",
     }), 200
 
 

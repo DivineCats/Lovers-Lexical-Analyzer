@@ -361,14 +361,21 @@ def _stmts_definitely_return_with_value(stmts: List[Statement]) -> bool:
         if isinstance(stmt, ReturnStatement):
             return _typed_return_statement_returns_value(stmt)
         if isinstance(stmt, IfStatement):
-            if not _body_definitely_returns_with_value(stmt.then_body):
-                return False
-            for clause in stmt.elif_clauses:
-                if not _body_definitely_returns_with_value(clause.body):
-                    return False
-            if stmt.else_body is None:
-                return False
-            return _body_definitely_returns_with_value(stmt.else_body)
+            then_returns = _body_definitely_returns_with_value(stmt.then_body)
+            elifs_return = all(
+                _body_definitely_returns_with_value(clause.body)
+                for clause in stmt.elif_clauses
+            )
+            else_returns = (
+                stmt.else_body is not None
+                and _body_definitely_returns_with_value(stmt.else_body)
+            )
+
+            # The if-statement itself definitely returns only when every branch
+            # (then / all forevermore / more) definitely returns with value.
+            if then_returns and elifs_return and else_returns:
+                return True
+            continue
         if isinstance(stmt, WhileStatement) or isinstance(stmt, ForStatement):
             continue
         if isinstance(stmt, DoWhileStatement):
@@ -378,14 +385,17 @@ def _stmts_definitely_return_with_value(stmts: List[Statement]) -> bool:
         if isinstance(stmt, SwitchStatement):
             if not stmt.cases:
                 continue
-            for case in stmt.cases:
-                if not _body_definitely_returns_with_value(case.body):
-                    return False
-            if stmt.default_case is None:
-                return False
-            if not _body_definitely_returns_with_value(stmt.default_case):
-                return False
-            return True
+            cases_return = all(
+                _body_definitely_returns_with_value(case.body)
+                for case in stmt.cases
+            )
+            default_returns = (
+                stmt.default_case is not None
+                and _body_definitely_returns_with_value(stmt.default_case)
+            )
+            if cases_return and default_returns:
+                return True
+            continue
     return False
 
 

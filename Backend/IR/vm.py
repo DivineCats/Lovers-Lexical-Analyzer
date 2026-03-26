@@ -39,6 +39,16 @@ class _StdinReader:
             self._tok_cache = line.split()
             self._tok_i = 0
 
+    def has_token(self) -> bool:
+        self._fill()
+        return self._tok_i < len(self._tok_cache)
+
+    def has_line(self) -> bool:
+        return self._line_i < len(self._lines)
+
+    def push_line(self, text: str) -> None:
+        self._lines.append(text)
+
     def read_dear(self) -> int:
         self._fill()
         if self._tok_i >= len(self._tok_cache):
@@ -75,7 +85,7 @@ class _StdinReader:
 
 
 class TacVM:
-    def __init__(self, quads: List[Quad], *, stdin: str = "") -> None:
+    def __init__(self, quads: List[Quad], *, stdin: str = "", echo_input: bool = False) -> None:
         self.quads = quads
         self.labels: Dict[str, int] = {}
         for i, q in enumerate(quads):
@@ -88,8 +98,28 @@ class TacVM:
         self.stdout = io.StringIO()
         self.stdin = _StdinReader(stdin)
         self.halt_ip: Optional[int] = None
+        self.echo_input = echo_input
+        self.waiting_input_op: Optional[str] = None
+        self.waiting_input_res: Optional[str] = None
 
     def run(self) -> str:
+        state = self._run_loop(pause_on_input=False)
+        if state["state"] == "error":
+            raise VMError(state["message"])
+        return self.stdout.getvalue()
+
+    def run_until_input(self) -> Dict[str, Any]:
+        state = self._run_loop(pause_on_input=True)
+        if state["state"] == "error":
+            raise VMError(state["message"])
+        return state
+
+    def provide_input(self, text: str) -> None:
+        self.stdin.push_line(text)
+        if self.echo_input:
+            self.stdout.write(text + "\n")
+
+    def _run_loop(self, *, pause_on_input: bool) -> Dict[str, Any]:
         if "__love_main" not in self.labels:
             raise VMError("missing __love_main label")
         self.halt_ip = len(self.quads)
@@ -222,19 +252,43 @@ class TacVM:
                 self.ip += 1
                 continue
             if op == "READ_INT":
+                if pause_on_input and not self.stdin.has_token():
+                    self.waiting_input_op = op
+                    self.waiting_input_res = q.res
+                    return {"state": "waiting_input", "kind": "dear"}
                 self._set(q.res, self.stdin.read_dear())
+                self.waiting_input_op = None
+                self.waiting_input_res = None
                 self.ip += 1
                 continue
             if op == "READ_FLOAT":
+                if pause_on_input and not self.stdin.has_token():
+                    self.waiting_input_op = op
+                    self.waiting_input_res = q.res
+                    return {"state": "waiting_input", "kind": "dearest"}
                 self._set(q.res, self.stdin.read_dearest())
+                self.waiting_input_op = None
+                self.waiting_input_res = None
                 self.ip += 1
                 continue
             if op == "READ_BOOL":
+                if pause_on_input and not self.stdin.has_token():
+                    self.waiting_input_op = op
+                    self.waiting_input_res = q.res
+                    return {"state": "waiting_input", "kind": "status"}
                 self._set(q.res, self.stdin.read_status())
+                self.waiting_input_op = None
+                self.waiting_input_res = None
                 self.ip += 1
                 continue
             if op == "READ_LINE":
+                if pause_on_input and not self.stdin.has_line():
+                    self.waiting_input_op = op
+                    self.waiting_input_res = q.res
+                    return {"state": "waiting_input", "kind": "rant"}
                 self._set(q.res, self.stdin.read_rant_line())
+                self.waiting_input_op = None
+                self.waiting_input_res = None
                 self.ip += 1
                 continue
             if op == "STRLEN":
@@ -309,9 +363,9 @@ class TacVM:
                 self.ip += 1
                 continue
 
-            raise VMError(f"unsupported quad op `{op}`")
+            return {"state": "error", "message": f"unsupported quad op `{op}`"}
 
-        return self.stdout.getvalue()
+        return {"state": "finished"}
 
     def _current_frame(self) -> _Frame:
         if not self.call_stack:

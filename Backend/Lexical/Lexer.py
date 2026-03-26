@@ -25,7 +25,7 @@ DIGIT = Literals["digit"]
 ALNUM = Literals["alphanum"]
 WHITESPACE = {" ", "\t", "\n"}
 # Disallow only symbols that should never appear immediately after an identifier.
-BAD_SYMBOLS_AFTER_IDENTIFIER = set("!@#$^\\?~")
+BAD_SYMBOLS_AFTER_IDENTIFIER = set("!@#$^?~")
 IDENT_FOLLOW_CHARS = IDENTIFIER_DELIMS or WHITESPACE
 NUMBER_FOLLOW_CHARS = (
     NUMBER_DELIMS

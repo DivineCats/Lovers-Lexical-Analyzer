@@ -33,6 +33,49 @@
   tab-size: 4;
 }
 
+.c-source-live {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+}
+
+.term-inline-input-wrap {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: 2px;
+  width: 100%;
+  max-width: 100%;
+  vertical-align: baseline;
+}
+
+.term-inline-input-prefix {
+  white-space: pre-wrap;
+  flex-shrink: 0;
+}
+
+.term-inline-input {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  border: 0;
+  background: transparent;
+  color: #f6e7e7;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  outline: none;
+  resize: none;
+  overflow: hidden;
+  padding: 0;
+  margin: 0;
+}
+
+.term-inline-input::placeholder {
+  color: rgba(246, 231, 231, 0.45);
+}
+
 .tac-split {
   display: grid;
   grid-template-columns: minmax(240px, 1fr) minmax(360px, 1.8fr);
@@ -446,13 +489,14 @@
 }
 
 .term-log::-webkit-scrollbar,
-.tokens__body::-webkit-scrollbar,
+.c-source-pre::-webkit-scrollbar,
 .tac-list-pre::-webkit-scrollbar,
 .tac-table-wrap::-webkit-scrollbar {
-  height: 10px;
-  width: 12px;
+  width: 8px;
 }
 
+.term-log::-webkit-scrollbar-track,
+.c-source-pre::-webkit-scrollbar-track,
 .tac-list-pre::-webkit-scrollbar-track,
 .tac-table-wrap::-webkit-scrollbar-track {
   background: rgba(255, 191, 191, 0.03);
@@ -460,18 +504,12 @@
 }
 
 .term-log::-webkit-scrollbar-thumb,
-.tokens__body::-webkit-scrollbar-thumb,
+.c-source-pre::-webkit-scrollbar-thumb,
 .tac-list-pre::-webkit-scrollbar-thumb,
 .tac-table-wrap::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, rgba(255, 191, 191, 0.7), rgba(255, 191, 191, 0.5));
+  background: linear-gradient(180deg, rgba(255,191,191,0.7), rgba(255,191,191,0.5));
   border-radius: 8px;
-  border: 3px solid rgba(0, 0, 0, 0.12);
-}
-
-.tac-list-pre,
-.tac-table-wrap {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 191, 191, 0.7) rgba(255, 191, 191, 0.03);
+  border: 3px solid rgba(0,0,0,0.12);
 }
 
 /* Remove the browser default focus outline that creates the yellow “envelope” box */

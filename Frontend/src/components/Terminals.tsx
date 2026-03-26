@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import "./Terminals.css";
 import {
   getConstructionHint,
@@ -60,6 +60,12 @@ type Props = {
   /** Captured stdout from POST /run (interpreter). */
   programStdout?: string | null;
   programRunError?: { phase?: string; message?: string } | null;
+  awaitingInput?: boolean;
+  inputKind?: string | null;
+  terminalInput?: string;
+  onChangeTerminalInput?: (value: string) => void;
+  onSubmitTerminalInput?: () => void;
+  terminalBusy?: boolean;
   /** Three-address code from POST /tac after successful validate. */
   tacText?: string | null;
   tacError?: { phase?: string; message?: string } | null;
@@ -165,10 +171,17 @@ export default function Terminal({
   backendError = null,
   programStdout = null,
   programRunError = null,
+  awaitingInput = false,
+  inputKind = null,
+  terminalInput = "",
+  onChangeTerminalInput,
+  onSubmitTerminalInput,
+  terminalBusy = false,
   tacText = null,
   tacError = null,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabType>("lexical");
+  const terminalInputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const isErrorTab =
     activeTab === "lexical" ||
@@ -333,7 +346,7 @@ export default function Terminal({
   const isSyntaxBlocked = hasLexicalErrors;
   const isSemanticBlocked = hasLexicalErrors || hasSyntaxErrors;
   const hasAnalyzerErrors = lexicalCount > 0 || syntaxCount > 0 || semanticCount > 0;
-  const hasOutputContent = programStdout != null || Boolean(programRunError?.message);
+  const hasOutputContent = programStdout != null || Boolean(programRunError?.message) || awaitingInput;
   const hasTacContent = (tacText != null && tacText.length > 0) || Boolean(tacError?.message);
   const tacRows = useMemo(
     () => (tacText && tacText.length > 0 ? parseTacTextToRows(tacText) : []),
@@ -341,6 +354,31 @@ export default function Terminal({
   );
 
   const filteredErrors = errors.filter(error => error.type === activeTab);
+  const outputText = programStdout ?? "";
+  const outputHasTrailingNewline = outputText.endsWith("\n");
+  const outputLines = outputText.split(/\r?\n/);
+  const outputPromptPrefix =
+    awaitingInput && outputText.length > 0 && !outputHasTrailingNewline
+      ? (outputLines[outputLines.length - 1] ?? "")
+      : "";
+  const outputFrozenText = outputPromptPrefix
+    ? `${outputLines.slice(0, -1).join("\n")}${outputLines.length > 1 ? "\n" : ""}`
+    : outputText;
+
+  useEffect(() => {
+    if (!awaitingInput || !terminalInputRef.current) return;
+    const el = terminalInputRef.current;
+    el.style.height = "0px";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [awaitingInput, terminalInput]);
+
+  useEffect(() => {
+    if (!awaitingInput || terminalBusy || !terminalInputRef.current) return;
+    const el = terminalInputRef.current;
+    el.focus();
+    const end = el.value.length;
+    el.setSelectionRange(end, end);
+  }, [awaitingInput, terminalBusy, programStdout]);
 
   return (
     <div className="terminal-panel">
@@ -399,8 +437,42 @@ export default function Terminal({
             ) : programStdout != null ? (
               <>
                 <div className="c-gen-hint">== LOVE OF MY LIFE EXECUTED SUCCESFULLY &lt;3 ==</div>
-                {programStdout.length > 0 ? (
-                  <pre className="c-source-pre" tabIndex={0}>{programStdout}</pre>
+                {programStdout.length > 0 || awaitingInput ? (
+                  <div
+                    className="c-source-pre c-source-live"
+                    tabIndex={awaitingInput ? -1 : 0}
+                    onClick={() => {
+                      if (!awaitingInput || !terminalInputRef.current) return;
+                      const el = terminalInputRef.current;
+                      el.focus();
+                      const end = el.value.length;
+                      el.setSelectionRange(end, end);
+                    }}
+                  >
+                    {outputFrozenText.length > 0 ? <span>{outputFrozenText}</span> : null}
+                    {awaitingInput && (
+                      <span className="term-inline-input-wrap">
+                        <span className="term-inline-input-prefix">{outputPromptPrefix}</span>
+                        <textarea
+                          ref={terminalInputRef}
+                          className="term-inline-input"
+                          value={terminalInput}
+                          rows={1}
+                          onChange={(e) => onChangeTerminalInput?.(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && !e.shiftKey) {
+                              e.preventDefault();
+                              onSubmitTerminalInput?.();
+                            }
+                          }}
+                          disabled={terminalBusy}
+                          autoFocus
+                          aria-label={`Input value for ${inputKind ?? "give"}`}
+                          wrap="soft"
+                        />
+                      </span>
+                    )}
+                  </div>
                 ) : (
                   <div className="term-log__empty">(no output)</div>
                 )}

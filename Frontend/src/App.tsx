@@ -85,6 +85,8 @@ const normalizeRunEndpoint = (rawValue: string | undefined) => {
 };
 
 const RUN_ENDPOINT = normalizeRunEndpoint(import.meta.env.VITE_RUN_ENDPOINT);
+const RUN_START_ENDPOINT = RUN_ENDPOINT.replace(/\/run$/i, "/run/start");
+const RUN_INPUT_ENDPOINT = RUN_ENDPOINT.replace(/\/run$/i, "/run/input");
 
 const normalizeTacEndpoint = (rawValue: string | undefined) => {
   const value = rawValue?.trim();
@@ -134,6 +136,10 @@ export default function App() {
     phase?: string;
     message?: string;
   } | null>(null);
+  const [runSessionId, setRunSessionId] = useState<string | null>(null);
+  const [awaitingInput, setAwaitingInput] = useState(false);
+  const [inputKind, setInputKind] = useState<string | null>(null);
+  const [terminalInput, setTerminalInput] = useState("");
   const [tacText, setTacText] = useState<string | null>(null);
   const [tacError, setTacError] = useState<{
     phase?: string;
@@ -310,6 +316,10 @@ export default function App() {
   useEffect(() => {
     setProgramStdout(null);
     setProgramRunError(null);
+    setRunSessionId(null);
+    setAwaitingInput(false);
+    setInputKind(null);
+    setTerminalInput("");
     setTacText(null);
     setTacError(null);
   }, [debouncedSource]);
@@ -385,7 +395,7 @@ export default function App() {
         return;
       }
 
-      const resp = await fetch(RUN_ENDPOINT, {
+      const resp = await fetch(RUN_START_ENDPOINT, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source, stdin: "" }),
@@ -393,6 +403,17 @@ export default function App() {
       const { data: payload } = await parseResponseBody(resp);
       if (resp.ok && payload?.ok) {
         setProgramStdout((payload.stdout as string) ?? "");
+        const nextState = payload?.state as string | undefined;
+        if (nextState === "waiting_input" && typeof payload?.session_id === "string") {
+          setRunSessionId(payload.session_id as string);
+          setAwaitingInput(true);
+          setInputKind((payload?.input_kind as string | undefined) ?? null);
+        } else {
+          setRunSessionId(null);
+          setAwaitingInput(false);
+          setInputKind(null);
+          setTerminalInput("");
+        }
         return;
       }
       const msg =
@@ -403,10 +424,60 @@ export default function App() {
         phase: payload?.phase as string | undefined,
         message: msg,
       });
+      setProgramStdout((payload?.stdout as string | undefined) ?? "");
+      setRunSessionId(null);
+      setAwaitingInput(false);
+      setInputKind(null);
+      setTerminalInput("");
     } finally {
       setIsRunning(false);
     }
   }, [lexSource, syntaxSource, source]);
+
+  const handleSubmitTerminalInput = useCallback(async () => {
+    if (!runSessionId || !awaitingInput || isRunning) return;
+    setIsRunning(true);
+    try {
+      const resp = await fetch(RUN_INPUT_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: runSessionId,
+          input: terminalInput,
+        }),
+      });
+      const { data: payload } = await parseResponseBody(resp);
+      if (resp.ok && payload?.ok) {
+        setProgramStdout((payload.stdout as string) ?? "");
+        const nextState = payload?.state as string | undefined;
+        if (nextState === "waiting_input") {
+          setAwaitingInput(true);
+          setInputKind((payload?.input_kind as string | undefined) ?? null);
+          setTerminalInput("");
+        } else {
+          setRunSessionId(null);
+          setAwaitingInput(false);
+          setInputKind(null);
+          setTerminalInput("");
+        }
+        return;
+      }
+      const msg =
+        (payload?.message as string | undefined) ??
+        (payload?.error as string | undefined) ??
+        `Run input failed (HTTP ${resp.status})`;
+      setProgramRunError({
+        phase: payload?.phase as string | undefined,
+        message: msg,
+      });
+      setProgramStdout((payload?.stdout as string | undefined) ?? "");
+      setRunSessionId(null);
+      setAwaitingInput(false);
+      setInputKind(null);
+    } finally {
+      setIsRunning(false);
+    }
+  }, [awaitingInput, isRunning, runSessionId, terminalInput]);
 
   const handleEditorChange = useCallback(
     (files: FileTab[], activeId: string) => {
@@ -454,6 +525,12 @@ export default function App() {
             backendError={backendError}
             programStdout={programStdout}
             programRunError={programRunError}
+            awaitingInput={awaitingInput}
+            inputKind={inputKind}
+            terminalInput={terminalInput}
+            onChangeTerminalInput={setTerminalInput}
+            onSubmitTerminalInput={handleSubmitTerminalInput}
+            terminalBusy={isRunning}
             tacText={tacText}
             tacError={tacError}
           />

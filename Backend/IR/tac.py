@@ -766,6 +766,9 @@ class TacEmitter:
                 self.emit_declaration(decl)
             for st in fn.body.statements:
                 self.emit_stmt(st)
+        # Avoidant functions implicitly return if control reaches the end.
+        if fn.return_type is None:
+            self.emit("RETURN", None, None, None)
         self.pop_scope()
 
     def emit_program(self) -> None:
@@ -802,7 +805,7 @@ class TacEmitter:
 def generate_tac_quads(program: Program) -> List[Quad]:
     em = TacEmitter(program)
     em.emit_program()
-    return em.quads
+    return [q for q in em.quads if q.op != "COMMENT"]
 
 
 def generate_tac_text(program: Program) -> str:

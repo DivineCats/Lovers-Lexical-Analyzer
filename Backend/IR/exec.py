@@ -20,17 +20,31 @@ def run_lovers_source(
     Returns (stdout, stderr, None) on success, or (None, None, error_dict).
     On VM / ICG failure after a successful parse: (partial_stdout or "", None, {...}).
     """
-    program, err = analyze_and_build_program(source)
-    if err is not None:
-        return None, None, err
-    assert program is not None
-    try:
-        quads = generate_tac_quads(program)
-    except TacGenError as exc:
-        return None, None, {"phase": "icg", "message": str(exc)}
-    vm = TacVM(quads, stdin=stdin)
+    vm, vm_err = create_vm_from_source(source, stdin=stdin)
+    if vm_err is not None:
+        return None, None, vm_err
+    assert vm is not None
     try:
         out = vm.run()
     except VMError as exc:
         return vm.stdout.getvalue(), None, {"phase": "runtime", "message": str(exc)}
     return out or "", "", None
+
+
+def create_vm_from_source(
+    source: str, *, stdin: str = "", echo_input: bool = False
+) -> Tuple[Optional[TacVM], Optional[Dict[str, Any]]]:
+    """
+    Build TAC VM from source after analyze + TAC generation.
+
+    Returns (vm, None) on success or (None, error_dict) on failure.
+    """
+    program, err = analyze_and_build_program(source)
+    if err is not None:
+        return None, err
+    assert program is not None
+    try:
+        quads = generate_tac_quads(program)
+    except TacGenError as exc:
+        return None, {"phase": "icg", "message": str(exc)}
+    return TacVM(quads, stdin=stdin, echo_input=echo_input), None

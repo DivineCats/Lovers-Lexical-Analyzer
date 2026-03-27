@@ -126,6 +126,34 @@ def _human_symbol(name: Optional[str]) -> Optional[str]:
     return name
 
 
+def _build_human_label_aliases(quads: List[Quad]) -> Dict[str, str]:
+    """
+    Display-only label aliases for nicer TAC tables.
+    Compiler-generated labels (e.g. _if_1, _while_2, __love_main) are shown as L1, L2, ...
+    """
+    aliases: Dict[str, str] = {}
+    counter = 0
+
+    def add(label: Optional[str]) -> None:
+        nonlocal counter
+        if not label or not label.startswith("_"):
+            return
+        if label in aliases:
+            return
+        counter += 1
+        aliases[label] = f"L{counter}"
+
+    for q in quads:
+        if q.op == "LABEL":
+            add(q.res)
+        elif q.op == "GOTO":
+            add(q.arg1)
+        elif q.op in {"IF_FALSE", "IF_TRUE"}:
+            add(q.arg2)
+
+    return aliases
+
+
 _BINOP_INFIX: Dict[str, str] = {
     "ADD": "+",
     "SUB": "-",
@@ -143,13 +171,20 @@ _BINOP_INFIX: Dict[str, str] = {
 }
 
 
-def format_tac_human_line(q: Quad) -> str:
+def format_tac_human_line(q: Quad, label_aliases: Optional[Dict[str, str]] = None) -> str:
     """
     One line of textbook-style TAC: infix arithmetic, && / ||, and Tn temporaries.
     (Instruction index is added by format_tac_human.)
     """
     o = q.op
+    aliases = label_aliases or {}
     a1, a2, r = _human_symbol(q.arg1), _human_symbol(q.arg2), _human_symbol(q.res)
+    if a1 in aliases:
+        a1 = aliases[a1]
+    if a2 in aliases:
+        a2 = aliases[a2]
+    if r in aliases:
+        r = aliases[r]
     if o == "LABEL":
         return f"{r}:"
     if o == "GOTO":
@@ -212,9 +247,10 @@ def format_tac_human_line(q: Quad) -> str:
 
 def format_tac_human(quads: List[Quad]) -> str:
     """Numbered, slide-style listing: (0) T1 = y * z, etc."""
+    label_aliases = _build_human_label_aliases(quads)
     lines: List[str] = []
     for i, q in enumerate(quads):
-        lines.append(f"({i}) {format_tac_human_line(q)}")
+        lines.append(f"({i}) {format_tac_human_line(q, label_aliases)}")
     return "\n".join(lines) + "\n"
 
 
@@ -700,6 +736,15 @@ class TacEmitter:
         self._emit_body_statements_in_order(body)
         self.pop_scope()
 
+    @staticmethod
+    def _default_scalar_literal(lovers_type: str) -> str:
+        return {
+            "dear": "0",
+            "dearest": "0.0",
+            "rant": '""',
+            "status": "0",
+        }.get(lovers_type, "0")
+
     def emit_declaration(self, decl: Declaration) -> None:
         segs: List[Tuple[str, int, Optional[Expression], Any]] = [
             (decl.identifier, decl.array_dimensions, decl.initial_value, decl),
@@ -720,6 +765,8 @@ class TacEmitter:
                     raise TacGenError("array needs initializer", node)
             elif init is not None:
                 self.emit("ASSIGN", self.emit_expr(init), None, name)
+            else:
+                self.emit("ASSIGN", self._default_scalar_literal(decl.data_type), None, name)
 
     def emit_global_decl(self, decl: Declaration, prefix: str) -> None:
         segs: List[Tuple[str, int, Optional[Expression], Any]] = [
@@ -742,6 +789,8 @@ class TacEmitter:
                     raise TacGenError("array needs initializer", node)
             elif init is not None:
                 self.emit("ASSIGN", self.emit_expr(init), None, sym)
+            else:
+                self.emit("ASSIGN", self._default_scalar_literal(decl.data_type), None, sym)
 
     def _ns_alias_prologue(self, ns_name: str) -> None:
         ns_obj = next((n for n in self.program.namespaces if n.name == ns_name), None)

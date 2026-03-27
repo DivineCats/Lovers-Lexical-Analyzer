@@ -92,7 +92,8 @@ function parseTacLineToQuad(index: string, line: string): TacQuadRow {
   const s = line.trim();
   if (!s) return mk("");
   if (s.startsWith("//")) return mk("//", s.slice(2).trim());
-  if (s.endsWith(":")) return mk("label", "", "", s.slice(0, -1).trim());
+  // Show labels in textbook style (e.g., "L1:") instead of generic "label".
+  if (s.endsWith(":")) return mk(s);
 
   let m = s.match(/^if(False|True)\s+(.+)\s+goto\s+(.+)$/i);
   if (m) return mk(`if ${m[1].toUpperCase()}`, m[2], "", m[3]);

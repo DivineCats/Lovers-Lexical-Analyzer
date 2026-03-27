@@ -110,7 +110,7 @@ class Parameter(ASTNode):
 
 @dataclass
 class FunctionBody(ASTNode):
-    """Function body: local_decl_list statements"""
+    """Function body: ordered block items (use `statements`; locals via DeclarationStatement)."""
     local_declarations: List["Declaration"] = field(default_factory=list)
     statements: List["Statement"] = field(default_factory=list)
 
@@ -124,6 +124,12 @@ class FunctionBody(ASTNode):
 class Statement(ASTNode):
     """Base class for all statements."""
     pass
+
+
+@dataclass
+class DeclarationStatement(Statement):
+    """Local declaration as a block item (may appear after other statements)."""
+    declaration: Optional[Declaration] = None
 
 
 @dataclass
@@ -576,20 +582,23 @@ class RecursiveDescentAstBuilder:
     # -------------------------
     def _parse_block_body(self) -> FunctionBody:
         lbrace = self._expect("{", "Expected `{` to start block")
-        local_decls: List[Declaration] = []
         stmts: List[Statement] = []
-
-        while self._kind() in ("const",) or self._kind() in DATA_TYPES:
-            local_decls.append(self._parse_declaration(require_semicolon=True))
 
         while self._kind() != "}" and not self._at_end():
             if self._kind() in ("const",) or self._kind() in DATA_TYPES:
-                l, c = self._pos()
-                raise AstBuildError("Declarations must appear only at the top of a block", l, c)
-            stmts.append(self._parse_statement())
+                decl = self._parse_declaration(require_semicolon=True)
+                stmts.append(
+                    DeclarationStatement(
+                        line=decl.line,
+                        column=decl.column,
+                        declaration=decl,
+                    )
+                )
+            else:
+                stmts.append(self._parse_statement())
 
         self._expect("}", "Expected `}` to end block")
-        return FunctionBody(line=lbrace.line, column=lbrace.column, local_declarations=local_decls, statements=stmts)
+        return FunctionBody(line=lbrace.line, column=lbrace.column, local_declarations=[], statements=stmts)
 
     def _parse_declaration(self, require_semicolon: bool) -> Declaration:
         is_const = self._match("const")
@@ -841,22 +850,25 @@ class RecursiveDescentAstBuilder:
 
     def _parse_case_body_require_breakup(self) -> FunctionBody:
         start_line, start_col = self._pos()
-        local_decls: List[Declaration] = []
         stmts: List[Statement] = []
-
-        while self._kind() in ("const",) or self._kind() in DATA_TYPES:
-            local_decls.append(self._parse_declaration(require_semicolon=True))
 
         while not (self._kind() == "breakup" or self._at_end()):
             if self._kind() in ("const",) or self._kind() in DATA_TYPES:
-                l, c = self._pos()
-                raise AstBuildError("Declarations must appear only at the top of a phase body", l, c)
-            stmts.append(self._parse_statement())
+                decl = self._parse_declaration(require_semicolon=True)
+                stmts.append(
+                    DeclarationStatement(
+                        line=decl.line,
+                        column=decl.column,
+                        declaration=decl,
+                    )
+                )
+            else:
+                stmts.append(self._parse_statement())
 
         self._expect("breakup", "Each phase/bareminimum must end with `breakup;`")
         self._expect(";", "Expected `;` after breakup")
 
-        return FunctionBody(line=start_line, column=start_col, local_declarations=local_decls, statements=stmts)
+        return FunctionBody(line=start_line, column=start_col, local_declarations=[], statements=stmts)
 
     # -------------------------
     # expressions (Pratt)

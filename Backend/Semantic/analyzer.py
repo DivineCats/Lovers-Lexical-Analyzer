@@ -10,6 +10,7 @@ from Backend.Syntax.AST import (
     MainFunction,
     FunctionBody,
     Declaration,
+    DeclarationStatement,
     Statement,
     AssignmentStatement,
     FunctionCallStatement,
@@ -358,6 +359,8 @@ def _body_definitely_returns_with_value(body: FunctionBody) -> bool:
 
 def _stmts_definitely_return_with_value(stmts: List[Statement]) -> bool:
     for stmt in stmts:
+        if isinstance(stmt, DeclarationStatement):
+            continue
         if isinstance(stmt, ReturnStatement):
             return _typed_return_statement_returns_value(stmt)
         if isinstance(stmt, IfStatement):
@@ -904,12 +907,15 @@ def _analyze_body_ast(
     errors: List[SemanticError],
     ctx: AnalysisContext,
 ) -> None:
-    # Declarations at top of the block in the current scope.
-    for decl in body.local_declarations:
-        _declare_variable_ast(decl, scopes, struct_types, function_table, errors)
-
     for stmt in body.statements:
-        _analyze_statement_ast(stmt, scopes, struct_types, function_table, errors, ctx)
+        if isinstance(stmt, DeclarationStatement):
+            _declare_variable_ast(
+                stmt.declaration, scopes, struct_types, function_table, errors
+            )
+        else:
+            _analyze_statement_ast(
+                stmt, scopes, struct_types, function_table, errors, ctx
+            )
 
 
 def _analyze_statement_ast(

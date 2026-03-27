@@ -16,6 +16,7 @@ from Backend.Syntax.AST import (
     BreakStatement,
     ContinueStatement,
     Declaration,
+    DeclarationStatement,
     DoWhileStatement,
     Expression,
     ForStatement,
@@ -656,6 +657,13 @@ class TacEmitter:
             return
         raise TacGenError(f"unsupported statement `{type(stmt).__name__}`", stmt)
 
+    def _emit_body_statements_in_order(self, body: FunctionBody) -> None:
+        for st in body.statements:
+            if isinstance(st, DeclarationStatement):
+                self.emit_declaration(st.declaration)
+            else:
+                self.emit_stmt(st)
+
     def _emit_case_compare(self, disc: str, dt: str, val: Any, out: str) -> None:
         if dt == "rant":
             self.emit("EQ", disc, repr(str(val)), out)
@@ -689,10 +697,7 @@ class TacEmitter:
         if body is None:
             return
         self.push_scope()
-        for decl in body.local_declarations:
-            self.emit_declaration(decl)
-        for st in body.statements:
-            self.emit_stmt(st)
+        self._emit_body_statements_in_order(body)
         self.pop_scope()
 
     def emit_declaration(self, decl: Declaration) -> None:
@@ -762,10 +767,7 @@ class TacEmitter:
         for i, p in enumerate(fn.parameters):
             self.emit("RECV_PARAM", str(i), None, p.identifier)
         if fn.body:
-            for decl in fn.body.local_declarations:
-                self.emit_declaration(decl)
-            for st in fn.body.statements:
-                self.emit_stmt(st)
+            self._emit_body_statements_in_order(fn.body)
         # Avoidant functions implicitly return if control reaches the end.
         if fn.return_type is None:
             self.emit("RETURN", None, None, None)
@@ -793,10 +795,7 @@ class TacEmitter:
         self.push_scope()
         main = self.program.main_function
         if main and main.body:
-            for decl in main.body.local_declarations:
-                self.emit_declaration(decl)
-            for st in main.body.statements:
-                self.emit_stmt(st)
+            self._emit_body_statements_in_order(main.body)
         self.emit("RETURN", "0", None, None)
         self.pop_scope()
         self.pop_scope()

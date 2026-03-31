@@ -106,6 +106,8 @@ class Quad:
             return f"{self.res} = {o} {self.arg1}"
         if o == "ASET":
             return f"{self.arg1}[{self.arg2}] = {self.res}"
+        if o == "ARR_INIT":
+            return f"{self.res} = []"
         if o == "COMMENT":
             return f"// {self.arg1}"
         if o == "RECV_PARAM":
@@ -238,6 +240,8 @@ def format_tac_human_line(q: Quad, label_aliases: Optional[Dict[str, str]] = Non
         return f"{r} = ~{a1}"
     if o == "ASET":
         return f"{a1}[{a2}] = {r}"
+    if o == "ARR_INIT":
+        return f"{r} = []"
     if o == "COMMENT":
         return f"// {q.arg1}"
     if o == "RECV_PARAM":
@@ -757,12 +761,13 @@ class TacEmitter:
             self.declare(name, decl.data_type)
             if dims > 0:
                 if isinstance(init, ArrayLiteralExpression):
+                    self.emit("ARR_INIT", None, None, name)
                     for i, ex in enumerate(init.items):
                         self.emit("ASET", name, str(i), self.emit_expr(ex))
                 elif init is not None:
                     raise TacGenError("unsupported array initializer", node)
                 else:
-                    raise TacGenError("array needs initializer", node)
+                    self.emit("ARR_INIT", None, None, name)
             elif init is not None:
                 self.emit("ASSIGN", self.emit_expr(init), None, name)
             else:
@@ -781,12 +786,13 @@ class TacEmitter:
             self.declare(sym, decl.data_type)
             if dims > 0:
                 if isinstance(init, ArrayLiteralExpression):
+                    self.emit("ARR_INIT", None, None, sym)
                     for i, ex in enumerate(init.items):
                         self.emit("ASET", sym, str(i), self.emit_expr(ex))
                 elif init is not None:
                     raise TacGenError("unsupported global array init", node)
                 else:
-                    raise TacGenError("array needs initializer", node)
+                    self.emit("ARR_INIT", None, None, sym)
             elif init is not None:
                 self.emit("ASSIGN", self.emit_expr(init), None, sym)
             else:
@@ -861,6 +867,8 @@ def generate_tac_text(program: Program) -> str:
 
 
 def lovers_source_to_tac(source: str) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+    from Backend.IR.runtime_messages import humanize_icg_message
+
     program, err = analyze_and_build_program(source)
     if err is not None:
         return None, err
@@ -868,4 +876,5 @@ def lovers_source_to_tac(source: str) -> Tuple[Optional[str], Optional[Dict[str,
     try:
         return generate_tac_text(program), None
     except TacGenError as exc:
-        return None, {"phase": "icg", "message": str(exc)}
+        raw = str(exc)
+        return None, {"phase": "icg", "message": humanize_icg_message(raw), "detail": raw}

@@ -339,6 +339,10 @@ class TacVM:
                 arr[idx] = val
                 self.ip += 1
                 continue
+            if op == "ARR_INIT":
+                self._set(q.res, [])
+                self.ip += 1
+                continue
             if op == "MEMBER_LOAD":
                 obj = self._load(q.arg1)
                 if not isinstance(obj, dict):
@@ -434,12 +438,22 @@ class TacVM:
         if op in {"LAND", "LOR"}:
             ta, tb = self._truthy(a), self._truthy(b)
             return 1 if (ta and tb if op == "LAND" else ta or tb) else 0
-        if op in {"EQ", "NE"} and (isinstance(a, str) or isinstance(b, str)):
+        # String relational / equality operators: lexicographic comparison.
+        if isinstance(a, str) or isinstance(b, str):
             sa, sb = str(a), str(b)
-            eq = sa == sb
             if op == "EQ":
-                return 1 if eq else 0
-            return 0 if eq else 1
+                return 1 if sa == sb else 0
+            if op == "NE":
+                return 1 if sa != sb else 0
+            if op == "LT":
+                return 1 if sa < sb else 0
+            if op == "LE":
+                return 1 if sa <= sb else 0
+            if op == "GT":
+                return 1 if sa > sb else 0
+            if op == "GE":
+                return 1 if sa >= sb else 0
+            raise VMError(f"bad string binop {op}")
         if isinstance(a, float) or isinstance(b, float):
             x, y = float(a), float(b)
             if op == "ADD":

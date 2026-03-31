@@ -907,15 +907,22 @@ def _analyze_body_ast(
     errors: List[SemanticError],
     ctx: AnalysisContext,
 ) -> None:
-    for stmt in body.statements:
-        if isinstance(stmt, DeclarationStatement):
-            _declare_variable_ast(
-                stmt.declaration, scopes, struct_types, function_table, errors
-            )
-        else:
-            _analyze_statement_ast(
-                stmt, scopes, struct_types, function_table, errors, ctx
-            )
+    # Each {...} body introduces a lexical scope.
+    # This ensures declarations inside if/while/else/do/choose blocks
+    # do not leak outside their block.
+    scopes.append({})
+    try:
+        for stmt in body.statements:
+            if isinstance(stmt, DeclarationStatement):
+                _declare_variable_ast(
+                    stmt.declaration, scopes, struct_types, function_table, errors
+                )
+            else:
+                _analyze_statement_ast(
+                    stmt, scopes, struct_types, function_table, errors, ctx
+                )
+    finally:
+        scopes.pop()
 
 
 def _analyze_statement_ast(
@@ -1374,8 +1381,14 @@ def _resolve_overload(
     # Filter by arity.
     candidates = [fi for fi in overloads if len(fi.param_types) == len(arg_types)]
     if not candidates:
+        expected_counts = sorted({len(fi.param_types) for fi in overloads})
+        counts_txt = ", ".join(str(n) for n in expected_counts)
         errors.append(SemanticError(
-            message=f"No overload of '{name}' matches {len(arg_types)} argument(s).",
+            message=(
+                f"Function '{name}' was called with {len(arg_types)} argument(s), "
+                f"but available overloads expect: [{counts_txt}]. "
+                "Add or remove arguments to match a definition."
+            ),
             node=call_node,
         ))
         return None

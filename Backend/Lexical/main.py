@@ -144,6 +144,62 @@ def validate():
             "parser": parser_type,
         }), 200
 
+    # ICG (TAC generation): surface codegen failures as semantic-tab errors so Run / Output stays clean.
+    from Backend.Syntax.parsetv2 import parse_with_ast
+    from Backend.IR.tac import TacGenError, generate_tac_quads
+    from Backend.IR.runtime_messages import humanize_icg_message
+
+    program, ast_errors = parse_with_ast(tokens, source_code=source)
+    if ast_errors:
+        raw = str(ast_errors[0])
+        friendly = humanize_icg_message(raw)
+        return jsonify({
+            "ok": False,
+            "message": friendly,
+            "code": "ERR_SEMANTIC",
+            "semantic_errors": [{
+                "message": friendly,
+                "line": 1,
+                "column": 1,
+                "code": "ERR_ICG",
+            }],
+            "parser": parser_type,
+            "detail": raw,
+        }), 200
+
+    if program is None:
+        return jsonify({
+            "ok": False,
+            "message": "Program build failed after semantic analysis.",
+            "code": "ERR_SEMANTIC",
+            "semantic_errors": [{
+                "message": "Program build failed after semantic analysis.",
+                "line": 1,
+                "column": 1,
+                "code": "ERR_ICG",
+            }],
+            "parser": parser_type,
+        }), 200
+
+    try:
+        generate_tac_quads(program)
+    except TacGenError as exc:
+        raw = str(exc)
+        friendly = humanize_icg_message(raw)
+        return jsonify({
+            "ok": False,
+            "message": friendly,
+            "code": "ERR_SEMANTIC",
+            "semantic_errors": [{
+                "message": friendly,
+                "line": 1,
+                "column": 1,
+                "code": "ERR_ICG",
+            }],
+            "parser": parser_type,
+            "detail": raw,
+        }), 200
+
     return jsonify({
         "ok": True,
         "message": f"Syntax OK - No errors found (using {parser_type} parser)",
@@ -202,6 +258,7 @@ def run_program_start():
         }), 400
 
     from Backend.IR.exec import create_vm_from_source
+    from Backend.IR.runtime_messages import humanize_runtime_message
     from Backend.IR.vm import VMError
 
     vm, err = create_vm_from_source(source, stdin=stdin, echo_input=True)
@@ -211,10 +268,12 @@ def run_program_start():
     try:
         state = vm.run_until_input()
     except VMError as exc:
+        raw = str(exc)
         return jsonify({
             "ok": False,
             "phase": "runtime",
-            "message": str(exc),
+            "message": humanize_runtime_message(raw),
+            "detail": raw,
             "stdout": vm.stdout.getvalue(),
         }), 200
 
@@ -253,6 +312,7 @@ def run_program_input():
     if vm is None:
         return jsonify({"ok": False, "message": "Run session not found or expired."}), 404
 
+    from Backend.IR.runtime_messages import humanize_runtime_message
     from Backend.IR.vm import VMError
 
     try:
@@ -260,10 +320,12 @@ def run_program_input():
         state = vm.run_until_input()
     except VMError as exc:
         RUN_SESSIONS.pop(session_id, None)
+        raw = str(exc)
         return jsonify({
             "ok": False,
             "phase": "runtime",
-            "message": str(exc),
+            "message": humanize_runtime_message(raw),
+            "detail": raw,
             "stdout": vm.stdout.getvalue(),
         }), 200
 

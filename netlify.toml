@@ -4,6 +4,36 @@ command = "npm ci && npm run build"
 publish = "dist"
 
 [[redirects]]
+from = "/lex"
+to = "https://lovers-lexical-analyzer-production.up.railway.app/lex"
+status = 200
+force = true
+
+[[redirects]]
+from = "/validate"
+to = "https://lovers-lexical-analyzer-production.up.railway.app/validate"
+status = 200
+force = true
+
+[[redirects]]
+from = "/tac"
+to = "https://lovers-lexical-analyzer-production.up.railway.app/tac"
+status = 200
+force = true
+
+[[redirects]]
+from = "/run"
+to = "https://lovers-lexical-analyzer-production.up.railway.app/run"
+status = 200
+force = true
+
+[[redirects]]
+from = "/run/*"
+to = "https://lovers-lexical-analyzer-production.up.railway.app/run/:splat"
+status = 200
+force = true
+
+[[redirects]]
 from = "/*"
 to = "/index.html"
 status = 200

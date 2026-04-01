@@ -73,8 +73,11 @@ const normalizeRunEndpoint = (rawValue: string | undefined) => {
   const value = rawValue?.trim();
   if (value) {
     const lower = value.toLowerCase();
+    if (lower.endsWith("/run/start") || lower.endsWith("/run/input")) {
+      return value.replace(/\/(start|input)\/?$/i, "").replace(/\/+$/, "");
+    }
     if (lower.endsWith("/run")) {
-      return value;
+      return value.replace(/\/+$/, "");
     }
     return `${value.replace(/\/+$/, "")}/run`;
   }
@@ -400,7 +403,43 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source, stdin: "" }),
       });
-      const { data: payload } = await parseResponseBody(resp);
+      let { data: payload } = await parseResponseBody(resp);
+
+      // Backward compatibility: some deployments expose only POST /run.
+      if (resp.status === 404) {
+        const fallbackResp = await fetch(RUN_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ source, stdin: "" }),
+        });
+        const { data: fallbackPayload } = await parseResponseBody(fallbackResp);
+        payload = fallbackPayload;
+
+        if (fallbackResp.ok && fallbackPayload?.ok) {
+          setProgramStdout((fallbackPayload.stdout as string) ?? "");
+          setRunSessionId(null);
+          setAwaitingInput(false);
+          setInputKind(null);
+          setTerminalInput("");
+          return;
+        }
+
+        const fallbackMsg =
+          (fallbackPayload?.message as string | undefined) ??
+          (fallbackPayload?.error as string | undefined) ??
+          `Run failed (HTTP ${fallbackResp.status})`;
+        setProgramRunError({
+          phase: fallbackPayload?.phase as string | undefined,
+          message: fallbackMsg,
+        });
+        setProgramStdout((fallbackPayload?.stdout as string | undefined) ?? "");
+        setRunSessionId(null);
+        setAwaitingInput(false);
+        setInputKind(null);
+        setTerminalInput("");
+        return;
+      }
+
       if (resp.ok && payload?.ok) {
         setProgramStdout((payload.stdout as string) ?? "");
         const nextState = payload?.state as string | undefined;

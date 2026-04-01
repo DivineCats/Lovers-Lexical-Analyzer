@@ -28,6 +28,8 @@ Railway uses `railway.toml` + `Dockerfile` in the repository root.
 
 Netlify uses `netlify.toml` in the repository root.
 
+`netlify.toml` also contains API proxy redirects for `/lex`, `/validate`, `/run`, `/run/*`, and `/tac` to the Railway backend URL so deployed frontend requests do not return `404` for relative API paths.
+
 ### Netlify build settings
 
 - Base directory: `Frontend`

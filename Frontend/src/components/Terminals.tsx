@@ -107,6 +107,9 @@ function parseTacLineToQuad(index: string, line: string): TacQuadRow {
   m = s.match(/^printNewline$/i);
   if (m) return mk("printNewline");
 
+  m = s.match(/^printStatus\s+(.+)$/i);
+  if (m) return mk("printStatus", m[1]);
+
   m = s.match(/^print\s+(.+)$/i);
   if (m) return mk("print", m[1]);
 

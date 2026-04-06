@@ -247,6 +247,12 @@ class TacVM:
                 self.stdout.write(str(self._load(q.arg1)))
                 self.ip += 1
                 continue
+            if op == "PRINT_STATUS":
+                self.stdout.write(
+                    "greenflag" if self._truthy(self._load(q.arg1)) else "redflag"
+                )
+                self.ip += 1
+                continue
             if op == "PRINT_NL":
                 self.stdout.write("\n")
                 self.ip += 1

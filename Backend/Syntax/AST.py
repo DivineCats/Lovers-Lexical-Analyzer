@@ -775,7 +775,6 @@ class RecursiveDescentAstBuilder:
         cond = self._parse_expression()
         self._expect(")", "Expected `)` after condition")
         body = self._parse_block_body()
-        self._expect(";", "Expected `;` after pursue(...) block")
         return DoWhileStatement(line=t.line, column=t.column, condition=cond, body=body)
 
     def _parse_for(self) -> ForStatement:

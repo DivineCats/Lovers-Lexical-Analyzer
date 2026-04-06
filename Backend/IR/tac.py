@@ -78,6 +78,8 @@ class Quad:
             return f"return {self.arg1}" if self.arg1 else "return"
         if o == "PRINT":
             return f"print {self.arg1}"
+        if o == "PRINT_STATUS":
+            return f"printStatus {self.arg1}"
         if o == "PRINT_NL":
             return "printNewline"
         if o == "READ_INT":
@@ -207,6 +209,8 @@ def format_tac_human_line(q: Quad, label_aliases: Optional[Dict[str, str]] = Non
         return f"return {a1}" if q.arg1 else "return"
     if o == "PRINT":
         return f"print {a1}"
+    if o == "PRINT_STATUS":
+        return f"printStatus {a1}"
     if o == "PRINT_NL":
         return "printNewline"
     if o == "READ_INT":
@@ -565,7 +569,11 @@ class TacEmitter:
                 if item == "periodt":
                     self.emit("PRINT_NL", None, None, None)
                 elif isinstance(item, Expression):
-                    self.emit("PRINT", self.emit_expr(item), None, None)
+                    place = self.emit_expr(item)
+                    if self.expr_type(item) == "status":
+                        self.emit("PRINT_STATUS", place, None, None)
+                    else:
+                        self.emit("PRINT", place, None, None)
             return
         if isinstance(stmt, ReturnStatement):
             if stmt.value is None:

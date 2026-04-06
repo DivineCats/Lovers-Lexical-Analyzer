@@ -49,6 +49,23 @@ class TacGenError(Exception):
         self.node = node
 
 
+def tacgen_error_dict(exc: TacGenError) -> Dict[str, Any]:
+    """API-friendly ICG error payload including line/column when the AST node is set."""
+    from Backend.IR.runtime_messages import humanize_icg_message
+
+    raw = str(exc)
+    n = exc.node
+    line = getattr(n, "line", 1) if n is not None else 1
+    col = getattr(n, "column", 1) if n is not None else 1
+    return {
+        "phase": "icg",
+        "message": humanize_icg_message(raw),
+        "detail": raw,
+        "line": line,
+        "column": col,
+    }
+
+
 @dataclass
 class Quad:
     op: str
@@ -757,6 +774,35 @@ class TacEmitter:
             "status": "0",
         }.get(lovers_type, "0")
 
+    def _emit_array_literal_init(
+        self,
+        target_sym: str,
+        dims: int,
+        lit: ArrayLiteralExpression,
+        lovers_type: str,
+        err_node: Any,
+    ) -> None:
+        """Lower { ... } / nested literals into ARR_INIT + ASET (lists of lists in the VM)."""
+        if dims < 1:
+            raise TacGenError("invalid array dimension for initializer", err_node)
+        self.emit("ARR_INIT", None, None, target_sym)
+        if dims == 1:
+            for i, ex in enumerate(lit.items):
+                if isinstance(ex, ArrayLiteralExpression):
+                    raise TacGenError("array literal not allowed here", ex)
+                self.emit("ASET", target_sym, str(i), self.emit_expr(ex))
+            return
+        for i, ex in enumerate(lit.items):
+            if not isinstance(ex, ArrayLiteralExpression):
+                raise TacGenError(
+                    "array literal nesting does not match declared dimensions",
+                    ex,
+                )
+            row_sym = self.fresh_temp()
+            self.declare(row_sym, lovers_type)
+            self._emit_array_literal_init(row_sym, dims - 1, ex, lovers_type, ex)
+            self.emit("ASET", target_sym, str(i), row_sym)
+
     def emit_declaration(self, decl: Declaration) -> None:
         segs: List[Tuple[str, int, Optional[Expression], Any]] = [
             (decl.identifier, decl.array_dimensions, decl.initial_value, decl),
@@ -769,9 +815,7 @@ class TacEmitter:
             self.declare(name, decl.data_type)
             if dims > 0:
                 if isinstance(init, ArrayLiteralExpression):
-                    self.emit("ARR_INIT", None, None, name)
-                    for i, ex in enumerate(init.items):
-                        self.emit("ASET", name, str(i), self.emit_expr(ex))
+                    self._emit_array_literal_init(name, dims, init, decl.data_type, node)
                 elif init is not None:
                     raise TacGenError("unsupported array initializer", node)
                 else:
@@ -794,9 +838,7 @@ class TacEmitter:
             self.declare(sym, decl.data_type)
             if dims > 0:
                 if isinstance(init, ArrayLiteralExpression):
-                    self.emit("ARR_INIT", None, None, sym)
-                    for i, ex in enumerate(init.items):
-                        self.emit("ASET", sym, str(i), self.emit_expr(ex))
+                    self._emit_array_literal_init(sym, dims, init, decl.data_type, node)
                 elif init is not None:
                     raise TacGenError("unsupported global array init", node)
                 else:
@@ -875,8 +917,6 @@ def generate_tac_text(program: Program) -> str:
 
 
 def lovers_source_to_tac(source: str) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
-    from Backend.IR.runtime_messages import humanize_icg_message
-
     program, err = analyze_and_build_program(source)
     if err is not None:
         return None, err
@@ -884,5 +924,4 @@ def lovers_source_to_tac(source: str) -> Tuple[Optional[str], Optional[Dict[str,
     try:
         return generate_tac_text(program), None
     except TacGenError as exc:
-        raw = str(exc)
-        return None, {"phase": "icg", "message": humanize_icg_message(raw), "detail": raw}
+        return None, tacgen_error_dict(exc)

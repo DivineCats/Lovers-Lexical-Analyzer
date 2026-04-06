@@ -146,7 +146,7 @@ def validate():
 
     # ICG (TAC generation): surface codegen failures as semantic-tab errors so Run / Output stays clean.
     from Backend.Syntax.parsetv2 import parse_with_ast
-    from Backend.IR.tac import TacGenError, generate_tac_quads
+    from Backend.IR.tac import TacGenError, generate_tac_quads, tacgen_error_dict
     from Backend.IR.runtime_messages import humanize_icg_message
 
     program, ast_errors = parse_with_ast(tokens, source_code=source)
@@ -184,20 +184,19 @@ def validate():
     try:
         generate_tac_quads(program)
     except TacGenError as exc:
-        raw = str(exc)
-        friendly = humanize_icg_message(raw)
+        payload = tacgen_error_dict(exc)
         return jsonify({
             "ok": False,
-            "message": friendly,
+            "message": payload["message"],
             "code": "ERR_SEMANTIC",
             "semantic_errors": [{
-                "message": friendly,
-                "line": 1,
-                "column": 1,
+                "message": payload["message"],
+                "line": payload["line"],
+                "column": payload["column"],
                 "code": "ERR_ICG",
             }],
             "parser": parser_type,
-            "detail": raw,
+            "detail": payload["detail"],
         }), 200
 
     return jsonify({

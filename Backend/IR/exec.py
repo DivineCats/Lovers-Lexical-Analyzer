@@ -7,8 +7,8 @@ from __future__ import annotations
 from typing import Any, Dict, Optional, Tuple
 
 from Backend.IR.pipeline import analyze_and_build_program
-from Backend.IR.runtime_messages import humanize_icg_message, humanize_runtime_message
-from Backend.IR.tac import TacGenError, generate_tac_quads
+from Backend.IR.runtime_messages import humanize_runtime_message
+from Backend.IR.tac import TacGenError, generate_tac_quads, tacgen_error_dict
 from Backend.IR.vm import TacVM, VMError
 
 
@@ -52,10 +52,5 @@ def create_vm_from_source(
     try:
         quads = generate_tac_quads(program)
     except TacGenError as exc:
-        raw = str(exc)
-        return None, {
-            "phase": "icg",
-            "message": humanize_icg_message(raw),
-            "detail": raw,
-        }
+        return None, tacgen_error_dict(exc)
     return TacVM(quads, stdin=stdin, echo_input=echo_input), None

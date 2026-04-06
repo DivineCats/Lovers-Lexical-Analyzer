@@ -7,6 +7,15 @@ import {
   extractExpectedTokens,
 } from "./syntaxHelper";
 
+function formatMultilineErrorMessage(message: string) {
+  return message.split("\n").map((line, i) => (
+    <span key={i}>
+      {i > 0 ? <br /> : null}
+      {line}
+    </span>
+  ));
+}
+
 export type ValidationTokenInfo = {
   lexeme?: string;
   kind?: string;
@@ -92,7 +101,6 @@ function parseTacLineToQuad(index: string, line: string): TacQuadRow {
   const s = line.trim();
   if (!s) return mk("");
   if (s.startsWith("//")) return mk("//", s.slice(2).trim());
-  // Show labels in textbook style (e.g., "L1:") instead of generic "label".
   if (s.endsWith(":")) return mk(s);
 
   let m = s.match(/^if(False|True)\s+(.+)\s+goto\s+(.+)$/i);
@@ -431,10 +439,7 @@ export default function Terminal({
                 <div className="error-item">
                   <span className="error-badge error-badge--backend">RUN</span>
                   <span className="error-message">
-                    {programRunError.message}
-                    {programRunError.phase ? (
-                      <span className="error-location-inline"> ({programRunError.phase})</span>
-                    ) : null}
+                    {formatMultilineErrorMessage(programRunError.message)}
                   </span>
                 </div>
               </div>
@@ -491,10 +496,7 @@ export default function Terminal({
                 <div className="error-item">
                   <span className="error-badge error-badge--backend">TAC</span>
                   <span className="error-message">
-                    {tacError.message}
-                    {tacError.phase ? (
-                      <span className="error-location-inline"> ({tacError.phase})</span>
-                    ) : null}
+                    {formatMultilineErrorMessage(tacError.message)}
                   </span>
                 </div>
               </div>

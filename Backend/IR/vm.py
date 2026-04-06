@@ -119,6 +119,13 @@ class TacVM:
         if self.echo_input:
             self.stdout.write(text + "\n")
 
+    @staticmethod
+    def _format_value_for_print(v: Any) -> str:
+        """Scalars use normal text; nested lists flatten to space-separated values (no list-style brackets)."""
+        if isinstance(v, list):
+            return " ".join(TacVM._format_value_for_print(x) for x in v)
+        return str(v)
+
     def _run_loop(self, *, pause_on_input: bool) -> Dict[str, Any]:
         if "__love_main" not in self.labels:
             raise VMError("missing __love_main label")
@@ -244,7 +251,7 @@ class TacVM:
                 self.ip = callee.return_ip
                 continue
             if op == "PRINT":
-                self.stdout.write(str(self._load(q.arg1)))
+                self.stdout.write(self._format_value_for_print(self._load(q.arg1)))
                 self.ip += 1
                 continue
             if op == "PRINT_STATUS":

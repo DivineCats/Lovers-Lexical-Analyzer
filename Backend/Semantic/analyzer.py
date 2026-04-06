@@ -97,6 +97,7 @@ class SymbolInfo:
     line: int
     column: int
     array_dimensions: int = 0
+    array_shape: Optional[Tuple[int, ...]] = None
 
 
 @dataclass
@@ -210,6 +211,94 @@ def _require_bool_convertible_condition(
         ))
 
 
+def _infer_rectangular_array_shape(
+    declared_dims: int,
+    lit: ArrayLiteralExpression,
+) -> Optional[Tuple[int, ...]]:
+    """
+    If the literal is a perfect rectangular tensor, return (d0, d1, ...).
+    Otherwise return None (jagged or empty in a way we cannot summarize).
+    """
+    d = max(1, declared_dims)
+    if d == 1:
+        return (len(lit.items),)
+    if not lit.items:
+        return None
+    sub_shapes: List[Tuple[int, ...]] = []
+    for it in lit.items:
+        if not isinstance(it, ArrayLiteralExpression):
+            return None
+        sh = _infer_rectangular_array_shape(d - 1, it)
+        if sh is None:
+            return None
+        sub_shapes.append(sh)
+    first = sub_shapes[0]
+    if any(s != first for s in sub_shapes[1:]):
+        return None
+    return (len(lit.items),) + first
+
+
+def _try_const_int_index(
+    expr: Expression,
+    scopes: List[Dict[str, SymbolInfo]],
+    struct_types: Dict[str, Dict[str, str]],
+    function_table: Dict[str, List[FunctionInfo]],
+    errors: List[SemanticError],
+) -> Optional[int]:
+    """Integer value of index if it is a compile-time constant (dear/status literal, parens, unary +/-)."""
+    if isinstance(expr, LiteralExpression):
+        if expr.literal_type == "int":
+            return int(expr.value)
+        if expr.literal_type == "bool":
+            return 1 if expr.value else 0
+        return None
+    if isinstance(expr, ParenthesizedExpression):
+        return _try_const_int_index(
+            expr.expression, scopes, struct_types, function_table, errors,
+        )
+    if isinstance(expr, ExprUnaryExpression):
+        if expr.operator == "+":
+            return _try_const_int_index(
+                expr.operand, scopes, struct_types, function_table, errors,
+            )
+        if expr.operator == "-":
+            inner = _try_const_int_index(
+                expr.operand, scopes, struct_types, function_table, errors,
+            )
+            return None if inner is None else -inner
+    return None
+
+
+def _validate_array_index_bounds(
+    sym: SymbolInfo,
+    indices: List[Expression],
+    errors: List[SemanticError],
+    scopes: List[Dict[str, SymbolInfo]],
+    struct_types: Dict[str, Dict[str, str]],
+    function_table: Dict[str, List[FunctionInfo]],
+) -> None:
+    if not indices or sym.array_shape is None:
+        return
+    shape = sym.array_shape
+    for depth, idx_expr in enumerate(indices):
+        if depth >= len(shape):
+            break
+        bound = shape[depth]
+        ci = _try_const_int_index(
+            idx_expr, scopes, struct_types, function_table, errors,
+        )
+        if ci is None:
+            continue
+        if ci < 0 or ci >= bound:
+            errors.append(SemanticError(
+                message=(
+                    f"Array index {ci} is out of bounds for dimension {depth} of '{sym.name}' "
+                    f"(valid indices are 0 through {bound - 1} for this dimension)."
+                ),
+                node=idx_expr,
+            ))
+
+
 def _validate_assignment_indices_and_rhs(
     stmt: AssignmentStatement,
     sym: SymbolInfo,
@@ -263,6 +352,10 @@ def _validate_assignment_indices_and_rhs(
                 ),
                 node=idx_expr,
             ))
+
+    _validate_array_index_bounds(
+        sym, stmt.array_indices, errors, scopes, struct_types, function_table,
+    )
 
     rhs_type = _infer_expression_type_ast(
         stmt.value,
@@ -528,16 +621,18 @@ def _declare_variable_ast(
             ))
             continue
 
-        current_scope[name] = SymbolInfo(
-            name=name,
-            type_name=decl.data_type,
-            is_const=decl.is_const,
-            line=getattr(node, "line", decl.line),
-            column=getattr(node, "column", decl.column),
-            array_dimensions=dims,
-        )
+        shape_opt: Optional[Tuple[int, ...]] = None
 
         if init is None:
+            current_scope[name] = SymbolInfo(
+                name=name,
+                type_name=decl.data_type,
+                is_const=decl.is_const,
+                line=getattr(node, "line", decl.line),
+                column=getattr(node, "column", decl.column),
+                array_dimensions=dims,
+                array_shape=None,
+            )
             continue
 
         if isinstance(init, ArrayLiteralExpression):
@@ -551,6 +646,8 @@ def _declare_variable_ast(
                 function_table=function_table,
                 errors=errors,
             )
+            if dims > 0:
+                shape_opt = _infer_rectangular_array_shape(dims, init)
         else:
             value_type = _infer_expression_type_ast(
                 init,
@@ -567,6 +664,16 @@ def _declare_variable_ast(
                     ),
                     node=node,
                 ))
+
+        current_scope[name] = SymbolInfo(
+            name=name,
+            type_name=decl.data_type,
+            is_const=decl.is_const,
+            line=getattr(node, "line", decl.line),
+            column=getattr(node, "column", decl.column),
+            array_dimensions=dims,
+            array_shape=shape_opt,
+        )
 
 
 def _check_array_initializer_elements(
@@ -1192,6 +1299,9 @@ def _infer_expression_type_ast(
                     node=expr,
                 ))
                 return None
+            _validate_array_index_bounds(
+                sym, expr.array_indices, errors, scopes, struct_types, function_table,
+            )
         return sym.type_name
 
     # Parenthesized

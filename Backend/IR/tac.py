@@ -349,8 +349,6 @@ class TacEmitter:
             return self.expr_type(expr.operand)
         if isinstance(expr, BinaryExpression):
             op = expr.operator
-            if op == ".=":
-                op = "=="
             if op in {"&&", "||", "==", "!=", "<", ">", "<=", ">="}:
                 return "status"
             if expr.operator == "+" and (
@@ -421,12 +419,11 @@ class TacEmitter:
                 return inner
             raise TacGenError(f"unsupported unary `{expr.operator}`", expr)
         if isinstance(expr, BinaryExpression):
-            raw = expr.operator
-            op = "=" if raw == ".=" else raw
+            op = expr.operator
             lt, rt = self.expr_type(expr.left), self.expr_type(expr.right)
             L = self.emit_expr(expr.left)
             R = self.emit_expr(expr.right)
-            if raw == "+" and (lt == "rant" or rt == "rant"):
+            if op == "+" and (lt == "rant" or rt == "rant"):
                 if lt != "rant" or rt != "rant":
                     raise TacGenError("rant + requires two strings", expr)
                 tt = self.fresh_temp()
@@ -452,7 +449,7 @@ class TacEmitter:
                 "%": "MOD",
             }.get(op)
             if tac_op is None:
-                raise TacGenError(f"unsupported binary `{raw}`", expr)
+                raise TacGenError(f"unsupported binary `{op}`", expr)
             out = self.fresh_temp()
             self.emit(tac_op, L, R, out)
             return out
@@ -534,7 +531,7 @@ class TacEmitter:
     def emit_stmt(self, stmt: Statement) -> None:
         if isinstance(stmt, AssignmentStatement):
             rhs = self.emit_expr(stmt.value)
-            op = "=" if stmt.operator == ".=" else stmt.operator
+            op = stmt.operator
             if stmt.array_indices:
                 arr, last_i = self._resolve_lhs_array(stmt.identifier, stmt.array_indices)
                 if op != "=":
@@ -746,8 +743,6 @@ class TacEmitter:
             return
         rhs = self.emit_expr(u.value) if u.value else "0"
         op = u.operator
-        if op == ".=":
-            op = "="
         if op == "=":
             self.emit("ASSIGN", rhs, None, u.identifier)
             return

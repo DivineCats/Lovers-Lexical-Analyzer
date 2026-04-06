@@ -73,7 +73,6 @@ reserved_symbol_follows = {
     "%": {" ", "\t", "\n", "alphanum", "(", "+", "-"},
     # Assignment
     "=": {" ", "\t", "\n", '"', "alphanum", "(", "{", "+", "-"},
-    ".=": {" ", "\t", "\n", '"', "alphanum", "(", "{", "+", "-"},
     "+=": {" ", "\t", "\n", "alphanum", '"', "("},
     "-=": {" ", "\t", "\n", "alphanum", '"', "("},
     "*=": {" ", "\t", "\n", "alphanum", '"', "("},
@@ -201,7 +200,6 @@ expanded_string_lit = {name: expand_follow(spec) for name, spec in string_lit.it
 
 MULTI_CHAR_OPERATORS = {
     ".==": "OP_DOT_EQ",
-    ".=": "OP_DOT_ASSIGN",
     "==": "OP_EQ",
     "!=": "OP_NEQ",
     ">=": "OP_GTE",
@@ -287,7 +285,6 @@ TOKEN_DISPLAY_NAME = {
     "OP_LSHIFT": "<<",
     "OP_RSHIFT": ">>",
     "OP_PLUS_ASSIGN": "+=",
-    "OP_DOT_ASSIGN": ".=",
     "OP_MINUS_ASSIGN": "-=",
     "OP_MUL_ASSIGN": "*=",
     "OP_DIV_ASSIGN": "/=",

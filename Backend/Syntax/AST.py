@@ -334,7 +334,7 @@ class ParenthesizedExpression(Expression):
 DATA_TYPES = {"dear", "dearest", "rant", "status"}
 BOOL_LITS = {"greenflag", "redflag"}
 
-ASSIGN_OPS = {"=", "+=", "-=", "*=", "/=", "%=", ".="}
+ASSIGN_OPS = {"=", "+=", "-=", "*=", "/=", "%="}
 UNARY_OPS = {"++", "--"}
 
 _PREC: dict[str, int] = {

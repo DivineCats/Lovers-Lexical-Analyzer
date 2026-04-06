@@ -116,7 +116,6 @@ def normalize_token(token_kind: str) -> str:
         "SLASH": "/",
         "PERCENT": "%",
         "ASSIGN": "=",
-        "OP_DOT_ASSIGN": ".=",
         "LT": "<",
         "GT": ">",
         "OP_EQ": "==",

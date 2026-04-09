@@ -16,6 +16,7 @@ from Backend.Syntax.AST import (
     FunctionCallStatement,
     UnaryStatement,
     InputStatement,
+    InputTarget,
     OutputStatement,
     ReturnStatement,
     IfStatement,
@@ -34,6 +35,8 @@ from Backend.Syntax.AST import (
     UnaryExpression as ExprUnaryExpression,
     IdentifierExpression,
     MemberAccessExpression,
+    SubscriptExpression,
+    StructFieldDesc,
     FunctionCallExpression,
     LiteralExpression,
     ArrayLiteralExpression,
@@ -43,6 +46,26 @@ from Backend.Syntax.AST import (
 
 
 TYPE_KEYWORDS = {"dear", "dearest", "rant", "status"}
+
+# struct name -> (field name -> descriptor)
+StructLayout = Dict[str, Dict[str, StructFieldDesc]]
+
+# Stacked struct array fields: "__af:{rank}:{elem_type}" (internal inferred type).
+_ARRAY_FIELD_PREFIX = "__af:"
+
+
+def _pack_array_field_type(rank: int, elem: str) -> str:
+    return f"{_ARRAY_FIELD_PREFIX}{rank}:{elem}"
+
+
+def _unpack_array_field_type(t: Optional[str]) -> Optional[Tuple[int, str]]:
+    if not t or not t.startswith(_ARRAY_FIELD_PREFIX):
+        return None
+    rest = t[len(_ARRAY_FIELD_PREFIX) :]
+    col = rest.find(":")
+    if col < 0:
+        return None
+    return int(rest[:col]), rest[col + 1 :]
 
 # Types allowed in if / while / for / pursue conditions (C++-style truthiness).
 _CONDITION_TRUTH_TYPES = {"dear", "dearest", "status"}
@@ -138,9 +161,9 @@ def _is_assignable(target_type: str, value_type: Optional[str]) -> bool:
 def _collect_struct_types_from_program(
     program: Program,
     errors: List[SemanticError],
-) -> Dict[str, Dict[str, str]]:
+) -> StructLayout:
     """Build struct layout table from `Program.struct_definitions` (AST — single source)."""
-    struct_types: Dict[str, Dict[str, str]] = {}
+    struct_types: StructLayout = {}
     for sd in program.struct_definitions:
         if sd.name in struct_types:
             errors.append(SemanticError(
@@ -167,7 +190,7 @@ def _require_bool_convertible_condition(
     condition: Optional[Expression],
     report_node: ASTNode,
     scopes: List[Dict[str, SymbolInfo]],
-    struct_types: Dict[str, Dict[str, str]],
+    struct_types: StructLayout,
     function_table: Dict[str, List[FunctionInfo]],
     errors: List[SemanticError],
 ) -> None:
@@ -241,7 +264,7 @@ def _infer_rectangular_array_shape(
 def _try_const_int_index(
     expr: Expression,
     scopes: List[Dict[str, SymbolInfo]],
-    struct_types: Dict[str, Dict[str, str]],
+    struct_types: StructLayout,
     function_table: Dict[str, List[FunctionInfo]],
     errors: List[SemanticError],
 ) -> Optional[int]:
@@ -274,7 +297,7 @@ def _validate_array_index_bounds(
     indices: List[Expression],
     errors: List[SemanticError],
     scopes: List[Dict[str, SymbolInfo]],
-    struct_types: Dict[str, Dict[str, str]],
+    struct_types: StructLayout,
     function_table: Dict[str, List[FunctionInfo]],
 ) -> None:
     if not indices or sym.array_shape is None:
@@ -299,14 +322,144 @@ def _validate_array_index_bounds(
             ))
 
 
+def _validate_struct_member_assignment(
+    stmt: AssignmentStatement,
+    sym: SymbolInfo,
+    scopes: List[Dict[str, SymbolInfo]],
+    struct_types: StructLayout,
+    function_table: Dict[str, List[FunctionInfo]],
+    errors: List[SemanticError],
+) -> None:
+    """Validate obj.f1... = rhs; last field may be a fixed-size array with post_member_indices."""
+    if sym.array_dimensions > 0:
+        d = sym.array_dimensions
+        errors.append(SemanticError(
+            message=(
+                f"Array '{stmt.identifier}' needs {d} subscript(s) before field access."
+            ),
+            node=stmt,
+        ))
+        return
+
+    cur_type = sym.type_name
+    path = stmt.member_path
+    if not path:
+        return
+
+    layout = struct_types.get(cur_type)
+    for field in path[:-1]:
+        if layout is None:
+            errors.append(SemanticError(
+                message=(
+                    f"Type '{cur_type}' is not a struct "
+                    f"(cannot use field `{field}` on `{stmt.identifier}`)."
+                ),
+                node=stmt,
+            ))
+            return
+        desc = layout.get(field)
+        if desc is None:
+            errors.append(SemanticError(
+                message=f"Struct '{cur_type}' has no field '{field}'.",
+                node=stmt,
+            ))
+            return
+        if desc.array_dims != 0:
+            errors.append(SemanticError(
+                message=f"Field '{field}' is an array; index it before using `.member` further.",
+                node=stmt,
+            ))
+            return
+        cur_type = desc.type_name
+        layout = struct_types.get(cur_type)
+
+    if layout is None:
+        errors.append(SemanticError(
+            message=f"Type '{cur_type}' is not a struct (invalid member access).",
+            node=stmt,
+        ))
+        return
+
+    last_f = path[-1]
+    desc = layout.get(last_f)
+    if desc is None:
+        errors.append(SemanticError(
+            message=f"Struct '{cur_type}' has no field '{last_f}'.",
+            node=stmt,
+        ))
+        return
+
+    n_post = len(stmt.post_member_indices)
+    if desc.array_dims == 0:
+        if n_post > 0:
+            errors.append(SemanticError(
+                message=f"Field '{last_f}' is not an array; remove `[ ]` before assigning.",
+                node=stmt,
+            ))
+            return
+        elem_t = desc.type_name
+    else:
+        if n_post != desc.array_dims:
+            errors.append(SemanticError(
+                message=(
+                    f"Field '{last_f}' needs {desc.array_dims} subscript(s), "
+                    f"got {n_post}."
+                ),
+                node=stmt,
+            ))
+            return
+        for ix_expr in stmt.post_member_indices:
+            idx_type = _infer_expression_type_ast(
+                ix_expr,
+                scopes,
+                struct_types,
+                function_table,
+                errors,
+            )
+            if idx_type is not None and idx_type not in {"dear", "status"}:
+                errors.append(SemanticError(
+                    message=f"Array index for '{last_f}' must be dear/status, not {idx_type}.",
+                    node=ix_expr,
+                ))
+        elem_t = desc.type_name
+
+    rhs_type = _infer_expression_type_ast(
+        stmt.value,
+        scopes,
+        struct_types,
+        function_table,
+        errors,
+    )
+    if not _is_assignable(elem_t, rhs_type):
+        errors.append(SemanticError(
+            message=(
+                f"Type mismatch: cannot assign {rhs_type or 'unknown'} "
+                f"to `{'.'.join(path)}` (expected element type {elem_t})."
+            ),
+            node=stmt,
+        ))
+
+
 def _validate_assignment_indices_and_rhs(
     stmt: AssignmentStatement,
     sym: SymbolInfo,
     scopes: List[Dict[str, SymbolInfo]],
-    struct_types: Dict[str, Dict[str, str]],
+    struct_types: StructLayout,
     function_table: Dict[str, List[FunctionInfo]],
     errors: List[SemanticError],
 ) -> None:
+    if stmt.member_path:
+        if stmt.array_indices:
+            errors.append(SemanticError(
+                message="Assignment with both `[]` and `.field` on the same target is not supported.",
+                node=stmt,
+            ))
+            return
+        _validate_struct_member_assignment(
+            stmt, sym, scopes, struct_types, function_table, errors,
+        )
+        return
+
     n_idx = len(stmt.array_indices)
     dims = sym.array_dimensions
 
@@ -372,6 +525,68 @@ def _validate_assignment_indices_and_rhs(
             ),
             node=stmt,
         ))
+
+
+def _validate_input_subscripts(
+    sym: SymbolInfo,
+    identifier: str,
+    array_indices: List[Expression],
+    tgt: InputTarget,
+    scopes: List[Dict[str, SymbolInfo]],
+    struct_types: StructLayout,
+    function_table: Dict[str, List[FunctionInfo]],
+    errors: List[SemanticError],
+) -> None:
+    """give >> must target a scalar slot: no indices on non-array, full indices on arrays."""
+    n_idx = len(array_indices)
+    dims = sym.array_dimensions
+
+    if dims == 0 and n_idx > 0:
+        errors.append(SemanticError(
+            message=f"Cannot subscript non-array variable '{identifier}'.",
+            node=tgt,
+        ))
+        return
+
+    if dims > 0 and n_idx == 0:
+        errors.append(SemanticError(
+            message=(
+                f"Cannot read into array '{identifier}' without indexing "
+                f"({dims} subscript(s) required)."
+            ),
+            node=tgt,
+        ))
+        return
+
+    if dims > 0 and n_idx != dims:
+        errors.append(SemanticError(
+            message=(
+                f"Wrong number of subscripts for '{identifier}': "
+                f"expected {dims}, got {n_idx}."
+            ),
+            node=tgt,
+        ))
+
+    for idx_expr in array_indices:
+        idx_type = _infer_expression_type_ast(
+            idx_expr,
+            scopes,
+            struct_types,
+            function_table,
+            errors,
+        )
+        if idx_type is not None and idx_type not in {"dear", "status"}:
+            errors.append(SemanticError(
+                message=(
+                    f"Invalid array index for '{identifier}': "
+                    f"type {idx_type} is not dear/status."
+                ),
+                node=idx_expr,
+            ))
+
+    _validate_array_index_bounds(
+        sym, array_indices, errors, scopes, struct_types, function_table,
+    )
 
 
 def _unify_array_literal_element_types(
@@ -595,7 +810,7 @@ def _collect_function_table(
 def _declare_variable_ast(
     decl: Declaration,
     scopes: List[Dict[str, SymbolInfo]],
-    struct_types: Dict[str, Dict[str, str]],
+    struct_types: StructLayout,
     function_table: Dict[str, List[FunctionInfo]],
     errors: List[SemanticError],
 ) -> None:
@@ -603,6 +818,16 @@ def _declare_variable_ast(
     Declare one or more variables from a `Declaration` (comma-separated
     `multi_declarations` share the same data type and const-ness).
     """
+    if (
+        decl.data_type not in {"dear", "dearest", "rant", "status"}
+        and decl.data_type not in struct_types
+    ):
+        errors.append(SemanticError(
+            message=f"Unknown type '{decl.data_type}'.",
+            node=decl,
+        ))
+        return
+
     current_scope = scopes[-1]
     segments: List[Tuple[str, int, Optional[Expression], ASTNode]] = [
         (decl.identifier, decl.array_dimensions, decl.initial_value, decl),
@@ -682,7 +907,7 @@ def _check_array_initializer_elements(
     array_lit: ArrayLiteralExpression,
     decl_name: str,
     scopes: List[Dict[str, SymbolInfo]],
-    struct_types: Dict[str, Dict[str, str]],
+    struct_types: StructLayout,
     function_table: Dict[str, List[FunctionInfo]],
     errors: List[SemanticError],
 ) -> None:
@@ -797,7 +1022,7 @@ def _validate_incdec_symbol(
 def _analyze_for_update_ast(
     upd: ForUpdate,
     scopes: List[Dict[str, SymbolInfo]],
-    struct_types: Dict[str, Dict[str, str]],
+    struct_types: StructLayout,
     function_table: Dict[str, List[FunctionInfo]],
     errors: List[SemanticError],
 ) -> None:
@@ -840,7 +1065,7 @@ def _analyze_for_update_ast(
 def _analyze_for_statement_ast(
     stmt: ForStatement,
     scopes: List[Dict[str, SymbolInfo]],
-    struct_types: Dict[str, Dict[str, str]],
+    struct_types: StructLayout,
     function_table: Dict[str, List[FunctionInfo]],
     errors: List[SemanticError],
     ctx: AnalysisContext,
@@ -937,7 +1162,7 @@ def _analyze_for_statement_ast(
 def _analyze_namespace_ast(
     ns: Namespace,
     scopes: List[Dict[str, SymbolInfo]],
-    struct_types: Dict[str, Dict[str, str]],
+    struct_types: StructLayout,
     function_table: Dict[str, List[FunctionInfo]],
     errors: List[SemanticError],
 ) -> None:
@@ -956,7 +1181,7 @@ def _analyze_namespace_ast(
 def _analyze_function_ast(
     fn: Function,
     scopes: List[Dict[str, SymbolInfo]],
-    struct_types: Dict[str, Dict[str, str]],
+    struct_types: StructLayout,
     function_table: Dict[str, List[FunctionInfo]],
     errors: List[SemanticError],
 ) -> None:
@@ -993,7 +1218,7 @@ def _analyze_function_ast(
 def _analyze_main_ast(
     main: MainFunction,
     scopes: List[Dict[str, SymbolInfo]],
-    struct_types: Dict[str, Dict[str, str]],
+    struct_types: StructLayout,
     function_table: Dict[str, List[FunctionInfo]],
     errors: List[SemanticError],
 ) -> None:
@@ -1009,7 +1234,7 @@ def _analyze_main_ast(
 def _analyze_body_ast(
     body: FunctionBody,
     scopes: List[Dict[str, SymbolInfo]],
-    struct_types: Dict[str, Dict[str, str]],
+    struct_types: StructLayout,
     function_table: Dict[str, List[FunctionInfo]],
     errors: List[SemanticError],
     ctx: AnalysisContext,
@@ -1035,7 +1260,7 @@ def _analyze_body_ast(
 def _analyze_statement_ast(
     stmt: Statement,
     scopes: List[Dict[str, SymbolInfo]],
-    struct_types: Dict[str, Dict[str, str]],
+    struct_types: StructLayout,
     function_table: Dict[str, List[FunctionInfo]],
     errors: List[SemanticError],
     ctx: AnalysisContext,
@@ -1097,20 +1322,32 @@ def _analyze_statement_ast(
             ))
         return
 
-    # give >> id; / overshare(id);
+    # give >> id ... ; / overshare(id);
     if isinstance(stmt, InputStatement):
-        sym = _lookup(scopes, stmt.identifier)
-        if sym is None:
-            errors.append(SemanticError(
-                message=f"Undeclared identifier '{stmt.identifier}'.",
-                node=stmt,
-            ))
-            return
-        if sym.is_const:
-            errors.append(SemanticError(
-                message=f"Cannot read input into const variable '{stmt.identifier}'.",
-                node=stmt,
-            ))
+        for tgt in stmt.targets:
+            sym = _lookup(scopes, tgt.identifier)
+            if sym is None:
+                errors.append(SemanticError(
+                    message=f"Undeclared identifier '{tgt.identifier}'.",
+                    node=tgt,
+                ))
+                continue
+            if sym.is_const:
+                errors.append(SemanticError(
+                    message=f"Cannot read input into const variable '{tgt.identifier}'.",
+                    node=tgt,
+                ))
+                continue
+            _validate_input_subscripts(
+                sym,
+                tgt.identifier,
+                tgt.array_indices,
+                tgt,
+                scopes,
+                struct_types,
+                function_table,
+                errors,
+            )
         return
 
     # ++id; id++; --id; id--;
@@ -1235,7 +1472,7 @@ def _analyze_statement_ast(
 def _infer_expression_type_ast(
     expr: Expression,
     scopes: List[Dict[str, SymbolInfo]],
-    struct_types: Dict[str, Dict[str, str]],
+    struct_types: StructLayout,
     function_table: Dict[str, List[FunctionInfo]],
     errors: List[SemanticError],
 ) -> Optional[str]:
@@ -1385,6 +1622,13 @@ def _infer_expression_type_ast(
         if base_type is None:
             return None
 
+        if _unpack_array_field_type(base_type) is not None:
+            errors.append(SemanticError(
+                message=f"Cannot use `.{expr.member}` on an array value; index with `[` first.",
+                node=expr,
+            ))
+            return None
+
         # Primitive types have no fields.
         if base_type in TYPE_KEYWORDS:
             errors.append(SemanticError(
@@ -1401,15 +1645,47 @@ def _infer_expression_type_ast(
             ))
             return None
 
-        field_type = fields.get(expr.member)
-        if field_type is None:
+        fdesc = fields.get(expr.member)
+        if fdesc is None:
             errors.append(SemanticError(
                 message=f"Struct '{base_type}' has no field '{expr.member}'.",
                 node=expr,
             ))
             return None
 
-        return field_type
+        if fdesc.array_dims == 0:
+            return fdesc.type_name
+        return _pack_array_field_type(fdesc.array_dims, fdesc.type_name)
+
+    if isinstance(expr, SubscriptExpression):
+        base_type = _infer_expression_type_ast(expr.base, scopes, struct_types, function_table, errors)
+        if base_type is None:
+            return None
+
+        idx_type = _infer_expression_type_ast(
+            expr.index, scopes, struct_types, function_table, errors,
+        )
+        if idx_type is not None and idx_type not in {"dear", "status"}:
+            errors.append(SemanticError(
+                message=f"Array subscript must be dear/status, not {idx_type}.",
+                node=expr.index,
+            ))
+
+        unpacked = _unpack_array_field_type(base_type)
+        if unpacked is not None:
+            rank, elem = unpacked
+            if rank <= 1:
+                return elem
+            return _pack_array_field_type(rank - 1, elem)
+
+        if base_type in TYPE_KEYWORDS:
+            return base_type
+
+        errors.append(SemanticError(
+            message=f"Cannot apply `[` `]` to non-array value of type '{base_type}'.",
+            node=expr,
+        ))
+        return None
 
     # Function call in expression
     if isinstance(expr, FunctionCallExpression):
@@ -1464,7 +1740,7 @@ def _resolve_overload(
     arg_exprs: List[Expression],
     call_node: ASTNode,
     scopes: List[Dict[str, SymbolInfo]],
-    struct_types: Dict[str, Dict[str, str]],
+    struct_types: StructLayout,
     function_table: Dict[str, List[FunctionInfo]],
     errors: List[SemanticError],
 ) -> Optional[FunctionInfo]:

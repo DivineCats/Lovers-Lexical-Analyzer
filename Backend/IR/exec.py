@@ -53,4 +53,7 @@ def create_vm_from_source(
         quads = generate_tac_quads(program)
     except TacGenError as exc:
         return None, tacgen_error_dict(exc)
-    return TacVM(quads, stdin=stdin, echo_input=echo_input), None
+    layouts = {sd.name: dict(sd.fields) for sd in program.struct_definitions}
+    return TacVM(
+        quads, stdin=stdin, echo_input=echo_input, struct_layouts=layouts
+    ), None

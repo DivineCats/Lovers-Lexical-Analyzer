@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from Backend.IR.tac import Quad
+from Backend.Syntax.AST import StructFieldDesc
 
 
 class VMError(Exception):
@@ -85,8 +86,16 @@ class _StdinReader:
 
 
 class TacVM:
-    def __init__(self, quads: List[Quad], *, stdin: str = "", echo_input: bool = False) -> None:
+    def __init__(
+        self,
+        quads: List[Quad],
+        *,
+        stdin: str = "",
+        echo_input: bool = False,
+        struct_layouts: Optional[Dict[str, Dict[str, StructFieldDesc]]] = None,
+    ) -> None:
         self.quads = quads
+        self.struct_layouts: Dict[str, Dict[str, StructFieldDesc]] = struct_layouts or {}
         self.labels: Dict[str, int] = {}
         for i, q in enumerate(quads):
             if q.op == "LABEL" and q.res:
@@ -101,6 +110,40 @@ class TacVM:
         self.echo_input = echo_input
         self.waiting_input_op: Optional[str] = None
         self.waiting_input_res: Optional[str] = None
+
+    def _default_value_for_lovers_type(self, t: str) -> Any:
+        """Default scalar or nested struct dict for field / variable initialization."""
+        if t in self.struct_layouts:
+            return {
+                fn: self._default_for_struct_field(fdesc)
+                for fn, fdesc in self.struct_layouts[t].items()
+            }
+        if t == "dear":
+            return 0
+        if t == "dearest":
+            return 0.0
+        if t == "rant":
+            return ""
+        if t == "status":
+            return 0
+        return 0
+
+    def _default_for_struct_field(self, fdesc: StructFieldDesc) -> Any:
+        if fdesc.array_dims == 0:
+            return self._default_value_for_lovers_type(fdesc.type_name)
+        shape = fdesc.shape
+        if len(shape) != fdesc.array_dims:
+            shape = tuple(None for _ in range(fdesc.array_dims))
+
+        def nest(depth: int) -> Any:
+            if depth == fdesc.array_dims:
+                return self._default_value_for_lovers_type(fdesc.type_name)
+            dim_sz = shape[depth]
+            if dim_sz is None:
+                return []
+            return [nest(depth + 1) for _ in range(dim_sz)]
+
+        return nest(0)
 
     def run(self) -> str:
         state = self._run_loop(pause_on_input=False)
@@ -160,6 +203,16 @@ class TacVM:
                 continue
             if op == "ASSIGN":
                 self._set(q.res, self._load(q.arg1))
+                self.ip += 1
+                continue
+            if op == "STRUCT_INIT":
+                tname = q.arg1
+                if not tname or tname not in self.struct_layouts:
+                    return {
+                        "state": "error",
+                        "message": f"STRUCT_INIT: unknown struct `{tname}`",
+                    }
+                self._set(q.res, self._default_value_for_lovers_type(tname))
                 self.ip += 1
                 continue
             if op in {

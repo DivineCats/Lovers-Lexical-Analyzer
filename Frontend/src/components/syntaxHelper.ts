@@ -29,7 +29,7 @@ export const SYMBOLS = [
 export const KEYWORD_STRUCTURE: Record<string, string> = {
   // I/O statements
   "express": "express << value ;",
-  "give": "give >> variable ;",
+  "give": "give >> variable [ >> variable ... ] ;",
   "overshare": "overshare << value1 << value2 ... ;",
   
   // Data types (variable declaration)
@@ -164,7 +164,7 @@ export const getConstructionHint = (expected: string[] | undefined, message: str
     return "Expected structure: express << value ;";
   }
   if (expectedSymbols.includes(">>")) {
-    return "Expected structure: give >> variable ;";
+    return "Expected structure: give >> variable [ >> variable ... ] ;";
   }
   if (expectedSymbols.some(s => ["dear", "dearest", "rant", "status"].includes(s))) {
     return "Expected data type: dear (int), dearest (float), rant (string), status (bool)";

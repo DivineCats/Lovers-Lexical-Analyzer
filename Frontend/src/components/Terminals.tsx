@@ -121,6 +121,10 @@ function parseTacLineToQuad(index: string, line: string): TacQuadRow {
   m = s.match(/^print\s+(.+)$/i);
   if (m) return mk("print", m[1]);
 
+  // Lovers input: list shows "give >> h"; table uses op give, arg1 = source, result = destination
+  m = s.match(/^give\s*>>\s+(.+)$/i);
+  if (m) return mk("give", "user input", "", m[1]);
+
   m = s.match(/^param\s+(.+)$/i);
   if (m) return mk("param", m[1]);
 

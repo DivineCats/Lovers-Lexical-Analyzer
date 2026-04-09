@@ -36,11 +36,30 @@ from Backend.Syntax.AST import (
     Program,
     ReturnStatement,
     Statement,
+    StructFieldDesc,
+    SubscriptExpression,
     SwitchStatement,
     UnaryExpression,
     UnaryStatement,
     WhileStatement,
 )
+
+_LOVERS_TYPE_KEYWORDS = frozenset({"dear", "dearest", "rant", "status"})
+_ARRAY_FIELD_PREFIX = "__af:"
+
+
+def _pack_array_field_type(rank: int, elem: str) -> str:
+    return f"{_ARRAY_FIELD_PREFIX}{rank}:{elem}"
+
+
+def _unpack_array_field_type(t: Optional[str]) -> Optional[Tuple[int, str]]:
+    if not t or not t.startswith(_ARRAY_FIELD_PREFIX):
+        return None
+    rest = t[len(_ARRAY_FIELD_PREFIX) :]
+    col = rest.find(":")
+    if col < 0:
+        return None
+    return int(rest[:col]), rest[col + 1 :]
 
 
 class TacGenError(Exception):
@@ -99,14 +118,11 @@ class Quad:
             return f"printStatus {self.arg1}"
         if o == "PRINT_NL":
             return "printNewline"
-        if o == "READ_INT":
-            return f"readInt {self.res}"
-        if o == "READ_FLOAT":
-            return f"readFloat {self.res}"
-        if o == "READ_BOOL":
-            return f"readBool {self.res}"
-        if o == "READ_LINE":
-            return f"readLine {self.res}"
+        if o in {"READ_INT", "READ_FLOAT", "READ_BOOL", "READ_LINE"}:
+            dst = _human_symbol(self.res)
+            return f"give >> {dst}"
+        if o == "STRUCT_INIT":
+            return f"{self.res} = struct {self.arg1}"
         if o == "INDEX_LOAD":
             return f"{self.res} = {self.arg1}[{self.arg2}]"
         if o == "INDEX_STORE":
@@ -230,14 +246,10 @@ def format_tac_human_line(q: Quad, label_aliases: Optional[Dict[str, str]] = Non
         return f"printStatus {a1}"
     if o == "PRINT_NL":
         return "printNewline"
-    if o == "READ_INT":
-        return f"readInt {r}"
-    if o == "READ_FLOAT":
-        return f"readFloat {r}"
-    if o == "READ_BOOL":
-        return f"readBool {r}"
-    if o == "READ_LINE":
-        return f"readLine {r}"
+    if o in {"READ_INT", "READ_FLOAT", "READ_BOOL", "READ_LINE"}:
+        return f"give >> {r}"
+    if o == "STRUCT_INIT":
+        return f"{r} = struct {a1}"
     if o == "INDEX_LOAD":
         return f"{r} = {a1}[{a2}]"
     if o == "INDEX_STORE":
@@ -286,7 +298,7 @@ class TacEmitter:
         self._temp = 0
         self._lbl = 0
         self._loop_stack: List[Tuple[Optional[str], str]] = []
-        self.struct_fields: Dict[str, Dict[str, str]] = {}
+        self.struct_fields: Dict[str, Dict[str, StructFieldDesc]] = {}
         for sd in program.struct_definitions:
             self.struct_fields[sd.name] = dict(sd.fields)
         self.fn_map: Dict[str, Tuple[Function, Optional[str]]] = {}
@@ -361,9 +373,26 @@ class TacEmitter:
             return "dear"
         if isinstance(expr, MemberAccessExpression):
             bt = self.expr_type(expr.object)
+            if _unpack_array_field_type(bt) is not None:
+                return "dear"
             fields = self.struct_fields.get(bt)
-            if fields and expr.member in fields:
-                return fields[expr.member]
+            if fields:
+                fdesc = fields.get(expr.member)
+                if fdesc is not None:
+                    if fdesc.array_dims == 0:
+                        return fdesc.type_name
+                    return _pack_array_field_type(fdesc.array_dims, fdesc.type_name)
+            return "dear"
+        if isinstance(expr, SubscriptExpression):
+            bt = self.expr_type(expr.base)
+            unpacked = _unpack_array_field_type(bt)
+            if unpacked is not None:
+                rank, elem = unpacked
+                if rank <= 1:
+                    return elem
+                return _pack_array_field_type(rank - 1, elem)
+            if bt in _LOVERS_TYPE_KEYWORDS:
+                return bt
             return "dear"
         if isinstance(expr, FunctionCallExpression):
             types = [self.expr_type(a) for a in expr.arguments]
@@ -458,6 +487,12 @@ class TacEmitter:
             tt = self.fresh_temp()
             self.emit("MEMBER_LOAD", obj, expr.member, tt)
             return tt
+        if isinstance(expr, SubscriptExpression):
+            base_pl = self.emit_expr(expr.base)
+            ix_pl = self.emit_expr(expr.index)
+            out = self.fresh_temp()
+            self.emit("INDEX_LOAD", base_pl, ix_pl, out)
+            return out
         if isinstance(expr, FunctionCallExpression):
             if expr.namespace is None and expr.identifier == "length":
                 if len(expr.arguments) != 1:
@@ -528,10 +563,97 @@ class TacEmitter:
         last = self.emit_expr(indices[-1])
         return cur, last
 
+    def _emit_read_into(self, lovers_type: str, dest: str, node: Statement) -> None:
+        if lovers_type == "dear":
+            self.emit("READ_INT", None, None, dest)
+        elif lovers_type == "dearest":
+            self.emit("READ_FLOAT", None, None, dest)
+        elif lovers_type == "status":
+            self.emit("READ_BOOL", None, None, dest)
+        elif lovers_type == "rant":
+            self.emit("READ_LINE", None, None, dest)
+        else:
+            raise TacGenError(f"READ unsupported for `{lovers_type}`", node)
+
+    def _emit_index_chain_store(
+        self,
+        arr: str,
+        indices: List[Expression],
+        rhs: str,
+        assign_op: str,
+        node: Any,
+    ) -> None:
+        if not indices:
+            raise TacGenError("expected array subscripts", node)
+        cur = arr
+        for ix in indices[:-1]:
+            it = self.emit_expr(ix)
+            nt = self.fresh_temp()
+            self.emit("INDEX_LOAD", cur, it, nt)
+            cur = nt
+        last_i = self.emit_expr(indices[-1])
+        if assign_op == "=":
+            self.emit("INDEX_STORE", cur, last_i, rhs)
+            return
+        tmp = self.fresh_temp()
+        self.emit("INDEX_LOAD", cur, last_i, tmp)
+        tac_op = {"+=": "ADD", "-=": "SUB", "*=": "MUL", "/=": "DIV", "%=": "MOD"}.get(assign_op)
+        if tac_op is None:
+            raise TacGenError(f"bad compound `{assign_op}`", node)
+        comb = self.fresh_temp()
+        self.emit(tac_op, tmp, rhs, comb)
+        self.emit("INDEX_STORE", cur, last_i, comb)
+
+    def _emit_member_assignment(
+        self,
+        base_sym: str,
+        path: List[str],
+        post_member_indices: List[Expression],
+        rhs: str,
+        assign_op: str,
+        node: Any,
+    ) -> None:
+        if not path:
+            raise TacGenError("empty member path", node)
+        cur = base_sym
+        for f in path[:-1]:
+            nt = self.fresh_temp()
+            self.emit("MEMBER_LOAD", cur, f, nt)
+            cur = nt
+        last_field = path[-1]
+        if not post_member_indices:
+            if assign_op == "=":
+                self.emit("MEMBER_STORE", cur, last_field, rhs)
+                return
+            tmp = self.fresh_temp()
+            self.emit("MEMBER_LOAD", cur, last_field, tmp)
+            tac_op = {"+=": "ADD", "-=": "SUB", "*=": "MUL", "/=": "DIV", "%=": "MOD"}.get(assign_op)
+            if tac_op is None:
+                raise TacGenError(f"bad compound `{assign_op}`", node)
+            comb = self.fresh_temp()
+            self.emit(tac_op, tmp, rhs, comb)
+            self.emit("MEMBER_STORE", cur, last_field, comb)
+            return
+        arr = self.fresh_temp()
+        self.emit("MEMBER_LOAD", cur, last_field, arr)
+        self._emit_index_chain_store(arr, post_member_indices, rhs, assign_op, node)
+
     def emit_stmt(self, stmt: Statement) -> None:
         if isinstance(stmt, AssignmentStatement):
             rhs = self.emit_expr(stmt.value)
             op = stmt.operator
+            if stmt.member_path:
+                if stmt.array_indices:
+                    raise TacGenError("indexed member assignment is not implemented", stmt)
+                self._emit_member_assignment(
+                    stmt.identifier,
+                    stmt.member_path,
+                    stmt.post_member_indices,
+                    rhs,
+                    op,
+                    stmt,
+                )
+                return
             if stmt.array_indices:
                 arr, last_i = self._resolve_lhs_array(stmt.identifier, stmt.array_indices)
                 if op != "=":
@@ -565,18 +687,16 @@ class TacEmitter:
             self.emit("ASSIGN", tmp, None, stmt.identifier)
             return
         if isinstance(stmt, InputStatement):
-            cell = stmt.identifier
-            t = self.lookup_type(cell) or "dear"
-            if t == "dear":
-                self.emit("READ_INT", None, None, cell)
-            elif t == "dearest":
-                self.emit("READ_FLOAT", None, None, cell)
-            elif t == "status":
-                self.emit("READ_BOOL", None, None, cell)
-            elif t == "rant":
-                self.emit("READ_LINE", None, None, cell)
-            else:
-                raise TacGenError(f"READ unsupported for `{t}`", stmt)
+            for tgt in stmt.targets:
+                base = tgt.identifier
+                t = self.lookup_type(base) or "dear"
+                if tgt.array_indices:
+                    tmp = self.fresh_temp()
+                    self._emit_read_into(t, tmp, stmt)
+                    arr, last_i = self._resolve_lhs_array(base, tgt.array_indices)
+                    self.emit("INDEX_STORE", arr, last_i, tmp)
+                else:
+                    self._emit_read_into(t, base, stmt)
             return
         if isinstance(stmt, OutputStatement):
             for item in stmt.values:
@@ -808,6 +928,13 @@ class TacEmitter:
             if not name:
                 continue
             self.declare(name, decl.data_type)
+            if decl.data_type in self.struct_fields:
+                if dims > 0:
+                    raise TacGenError("struct arrays are not supported", node)
+                if init is not None:
+                    raise TacGenError("struct initializer is not supported", node)
+                self.emit("STRUCT_INIT", decl.data_type, None, name)
+                continue
             if dims > 0:
                 if isinstance(init, ArrayLiteralExpression):
                     self._emit_array_literal_init(name, dims, init, decl.data_type, node)
@@ -831,6 +958,13 @@ class TacEmitter:
                 continue
             sym = prefix + name
             self.declare(sym, decl.data_type)
+            if decl.data_type in self.struct_fields:
+                if dims > 0:
+                    raise TacGenError("struct arrays are not supported", node)
+                if init is not None:
+                    raise TacGenError("struct initializer is not supported", node)
+                self.emit("STRUCT_INIT", decl.data_type, None, sym)
+                continue
             if dims > 0:
                 if isinstance(init, ArrayLiteralExpression):
                     self._emit_array_literal_init(sym, dims, init, decl.data_type, node)

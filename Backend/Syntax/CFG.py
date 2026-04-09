@@ -414,8 +414,13 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
 
     ("<struct_body_opt>", ["<struct_member>", "<struct_body_opt>"]),
     ("<struct_body_opt>", ["λ"]),
-    ("<struct_member>", ["<data_type>", "id", ";"]),
-    ("<struct_member>", ["struct", "id", "id", ";"]),
+    ("<struct_member>", ["<data_type>", "id", "<struct_field_array_opt>", ";"]),
+    ("<struct_member>", ["struct", "id", "id", "<struct_field_array_opt>", ";"]),
+    # Left-factored: `[` … `]` so LL(1) can choose `dear_lit` vs `]` after `[`.
+    ("<struct_field_array_opt>", ["[", "<struct_dim>", "]", "<struct_field_array_opt>"]),
+    ("<struct_field_array_opt>", ["λ"]),
+    ("<struct_dim>", ["dear_lit"]),
+    ("<struct_dim>", ["λ"]),
 ]
 
 

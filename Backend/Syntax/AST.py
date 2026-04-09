@@ -22,10 +22,19 @@ class ASTNode:
 
 
 @dataclass
+class StructFieldDesc(ASTNode):
+    """One field in a struct: scalar or fixed-size array (sizes are int literals per dimension)."""
+
+    type_name: str = ""  # element type: primitive or struct name
+    array_dims: int = 0
+    shape: Tuple[Optional[int], ...] = field(default_factory=tuple)  # length array_dims; None = unspecified `[]`
+
+
+@dataclass
 class StructDefinition(ASTNode):
-    """struct Name { fields }; — fields map: member name -> type (primitive or nested struct name)."""
+    """struct Name { fields }; — fields map: member name -> StructFieldDesc."""
     name: str = ""
-    fields: Dict[str, str] = field(default_factory=dict)
+    fields: Dict[str, StructFieldDesc] = field(default_factory=dict)
 
 
 @dataclass
@@ -70,7 +79,7 @@ class MainFunction(ASTNode):
 @dataclass
 class Declaration(ASTNode):
     """Variable declaration: data_type id [array_decl] [= expr] [multi_decl];"""
-    data_type: str = ""  # "dear", "dearest", "rant", "status"
+    data_type: str = ""  # "dear", "dearest", "rant", "status", or a struct name
     identifier: str = ""
     array_dimensions: int = 0  # Number of [] pairs
     initial_value: Optional["Expression"] = None
@@ -134,9 +143,11 @@ class DeclarationStatement(Statement):
 
 @dataclass
 class AssignmentStatement(Statement):
-    """Assignment: id [index_array] assign_op expr;"""
+    """Assignment: id [index_array] [. field]* [ [expr] ]* assign_op expr;"""
     identifier: str = ""
     array_indices: List["Expression"] = field(default_factory=list)
+    member_path: List[str] = field(default_factory=list)
+    post_member_indices: List["Expression"] = field(default_factory=list)
     operator: str = "="  # "=", "+=", "-=", "*=", "/=", "%="
     value: "Expression" = None
 
@@ -158,10 +169,18 @@ class UnaryStatement(Statement):
 
 
 @dataclass
-class InputStatement(Statement):
-    """Input: give >> id; or overshare(id);"""
-    method: str = ""  # "give" or "overshare"
+class InputTarget(ASTNode):
+    """One destination in give >> id [subs] >> id ... ;"""
+
     identifier: str = ""
+    array_indices: List["Expression"] = field(default_factory=list)
+
+
+@dataclass
+class InputStatement(Statement):
+    """Input: give >> id [ [expr] ] ( >> id [ [expr] ] )* ; or overshare(id);"""
+    method: str = ""  # "give" or "overshare"
+    targets: List[InputTarget] = field(default_factory=list)
 
 
 @dataclass
@@ -297,6 +316,13 @@ class MemberAccessExpression(Expression):
     """Member access: expr . id (supports chaining)."""
     object: "Expression" = None
     member: str = ""
+
+
+@dataclass
+class SubscriptExpression(Expression):
+    """Postfix subscript: base [ index ] (left-associative; chain for multi-index)."""
+    base: "Expression" = None
+    index: "Expression" = None
 
 
 @dataclass
@@ -481,25 +507,39 @@ class RecursiveDescentAstBuilder:
         st_tok = self._expect("struct", "Expected `struct`")
         name_tok = self._expect("id", "Expected struct name")
         self._expect("{", "Expected `{` to start struct body")
-        fields: Dict[str, str] = {}
+        fields: Dict[str, StructFieldDesc] = {}
         while self._kind() != "}" and not self._at_end():
             if self._kind() in DATA_TYPES:
                 ty = self._expect_any(sorted(DATA_TYPES), "Expected field type")
                 fid = self._expect("id", "Expected field name")
+                adims, shape = self._parse_struct_field_array_spec()
                 self._expect(";", "Expected `;` after struct field")
                 if fid.lexeme in fields:
                     line, col = self._pos()
                     raise AstBuildError(f"Duplicate field '{fid.lexeme}' in struct '{name_tok.lexeme}'", line, col)
-                fields[fid.lexeme] = ty.token
+                fields[fid.lexeme] = StructFieldDesc(
+                    line=fid.line,
+                    column=fid.column,
+                    type_name=ty.token,
+                    array_dims=adims,
+                    shape=shape,
+                )
             elif self._kind() == "struct":
                 self._expect("struct", "Expected `struct` for nested field")
                 inner = self._expect("id", "Expected nested struct type name")
                 fid = self._expect("id", "Expected field name")
+                adims, shape = self._parse_struct_field_array_spec()
                 self._expect(";", "Expected `;` after struct field")
                 if fid.lexeme in fields:
                     line, col = self._pos()
                     raise AstBuildError(f"Duplicate field '{fid.lexeme}' in struct '{name_tok.lexeme}'", line, col)
-                fields[fid.lexeme] = inner.lexeme
+                fields[fid.lexeme] = StructFieldDesc(
+                    line=fid.line,
+                    column=fid.column,
+                    type_name=inner.lexeme,
+                    array_dims=adims,
+                    shape=shape,
+                )
             else:
                 line, col = self._pos()
                 raise AstBuildError(
@@ -585,7 +625,16 @@ class RecursiveDescentAstBuilder:
         stmts: List[Statement] = []
 
         while self._kind() != "}" and not self._at_end():
-            if self._kind() in ("const",) or self._kind() in DATA_TYPES:
+            if self._kind() == "struct" and self._kind(2) != "{":
+                decl = self._parse_struct_local_declaration()
+                stmts.append(
+                    DeclarationStatement(
+                        line=decl.line,
+                        column=decl.column,
+                        declaration=decl,
+                    )
+                )
+            elif self._kind() in ("const",) or self._kind() in DATA_TYPES:
                 decl = self._parse_declaration(require_semicolon=True)
                 stmts.append(
                     DeclarationStatement(
@@ -599,6 +648,23 @@ class RecursiveDescentAstBuilder:
 
         self._expect("}", "Expected `}` to end block")
         return FunctionBody(line=lbrace.line, column=lbrace.column, local_declarations=[], statements=stmts)
+
+    def _parse_struct_local_declaration(self) -> Declaration:
+        """Local struct instance: struct TypeName varName; (not a struct definition)."""
+        st_tok = self._expect("struct", "Expected `struct`")
+        type_tok = self._expect("id", "Expected struct type name")
+        id_tok = self._expect("id", "Expected variable name")
+        self._expect(";", "Expected `;` after struct variable declaration")
+        return Declaration(
+            line=st_tok.line,
+            column=st_tok.column,
+            data_type=type_tok.lexeme,
+            identifier=id_tok.lexeme,
+            array_dimensions=0,
+            initial_value=None,
+            is_const=False,
+            multi_declarations=[],
+        )
 
     def _parse_declaration(self, require_semicolon: bool) -> Declaration:
         is_const = self._match("const")
@@ -659,17 +725,42 @@ class RecursiveDescentAstBuilder:
             return ReturnStatement(line=t.line, column=t.column, value=val)
         if k == "give":
             t = self._expect("give", "Expected `give`")
+            targets: List[InputTarget] = []
             self._expect(">>", "Expected `>>` after give")
-            name = self._expect("id", "Expected identifier after `>>`")
+            while True:
+                name = self._expect("id", "Expected identifier after `>>`")
+                indices = self._parse_index_list()
+                targets.append(
+                    InputTarget(
+                        line=name.line,
+                        column=name.column,
+                        identifier=name.lexeme,
+                        array_indices=indices,
+                    )
+                )
+                if not self._match(">>"):
+                    break
             self._expect(";", "Expected `;` after input statement")
-            return InputStatement(line=t.line, column=t.column, method="give", identifier=name.lexeme)
+            return InputStatement(line=t.line, column=t.column, method="give", targets=targets)
         if k == "overshare":
             t = self._expect("overshare", "Expected `overshare`")
             self._expect("(", "Expected `(` after overshare")
             name = self._expect("id", "Expected identifier in overshare()")
             self._expect(")", "Expected `)` after overshare identifier")
             self._expect(";", "Expected `;` after overshare()")
-            return InputStatement(line=t.line, column=t.column, method="overshare", identifier=name.lexeme)
+            return InputStatement(
+                line=t.line,
+                column=t.column,
+                method="overshare",
+                targets=[
+                    InputTarget(
+                        line=name.line,
+                        column=name.column,
+                        identifier=name.lexeme,
+                        array_indices=[],
+                    )
+                ],
+            )
         if k == "express":
             t = self._expect("express", "Expected `express`")
             values: List[Union[Expression, str]] = []
@@ -726,11 +817,33 @@ class RecursiveDescentAstBuilder:
                     raise AstBuildError("Qualified name cannot be indexed with `[]`", l, c)
                 indices = self._parse_index_list()
 
+            member_path: List[str] = []
+            while self._kind() == ".":
+                if "::" in qualified:
+                    l, c = self._pos()
+                    raise AstBuildError("Qualified name cannot use `.` member access", l, c)
+                self._expect(".", "Expected `.`")
+                mem = self._expect("id", "Expected field name after `.`")
+                member_path.append(mem.lexeme)
+
+            post_member_indices: List[Expression] = []
+            if member_path and self._kind() == "[":
+                post_member_indices = self._parse_index_list()
+
             if self._kind() in ASSIGN_OPS:
                 op = self._expect_any(sorted(ASSIGN_OPS), "Expected assignment operator")
                 value = self._parse_expression()
                 self._expect(";", "Expected `;` after assignment")
-                return AssignmentStatement(line=head_tok.line, column=head_tok.column, identifier=qualified, array_indices=indices, operator=op.token, value=value)
+                return AssignmentStatement(
+                    line=head_tok.line,
+                    column=head_tok.column,
+                    identifier=qualified,
+                    array_indices=indices,
+                    member_path=member_path,
+                    post_member_indices=post_member_indices,
+                    operator=op.token,
+                    value=value,
+                )
 
             l, c = self._pos()
             raise AstBuildError("Expected function call, unary op, or assignment after identifier", l, c)
@@ -852,7 +965,16 @@ class RecursiveDescentAstBuilder:
         stmts: List[Statement] = []
 
         while not (self._kind() == "breakup" or self._at_end()):
-            if self._kind() in ("const",) or self._kind() in DATA_TYPES:
+            if self._kind() == "struct" and self._kind(2) != "{":
+                decl = self._parse_struct_local_declaration()
+                stmts.append(
+                    DeclarationStatement(
+                        line=decl.line,
+                        column=decl.column,
+                        declaration=decl,
+                    )
+                )
+            elif self._kind() in ("const",) or self._kind() in DATA_TYPES:
                 decl = self._parse_declaration(require_semicolon=True)
                 stmts.append(
                     DeclarationStatement(
@@ -955,6 +1077,12 @@ class RecursiveDescentAstBuilder:
                 else:
                     expr = MemberAccessExpression(line=mem.line, column=mem.column, object=expr, member=mem.lexeme)
 
+            while self._kind() == "[":
+                self._expect("[", "Expected `[`")
+                ix = self._parse_expression()
+                lb = self._expect("]", "Expected `]` after index")
+                expr = SubscriptExpression(line=lb.line, column=lb.column, base=expr, index=ix)
+
             return expr
 
         raise AstBuildError(f"Unexpected token in expression: `{k}`", line, col)
@@ -962,6 +1090,30 @@ class RecursiveDescentAstBuilder:
     # -------------------------
     # misc helpers
     # -------------------------
+    def _parse_struct_field_array_spec(self) -> Tuple[int, Tuple[Optional[int], ...]]:
+        """Parse `[n]...` after a struct field name; bounds must be `dear` int literals or empty `[]`."""
+        sizes: List[Optional[int]] = []
+        while self._match("["):
+            if self._kind() == "]":
+                self._expect("]", "Expected `]` after `[`")
+                sizes.append(None)
+            else:
+                if self._kind() != "dear_lit":
+                    line, col = self._pos()
+                    raise AstBuildError(
+                        "Struct array field size must be a non-negative int literal (dear)",
+                        line,
+                        col,
+                    )
+                t = self._expect("dear_lit", "Expected int literal for array bound")
+                n = int(t.literal or t.lexeme)
+                if n < 0:
+                    line, col = self._pos()
+                    raise AstBuildError("Struct array bound must be non-negative", line, col)
+                sizes.append(n)
+                self._expect("]", "Expected `]` after array bound")
+        return len(sizes), tuple(sizes)
+
     def _parse_array_dims_count(self) -> int:
         dims = 0
         while self._match("["):

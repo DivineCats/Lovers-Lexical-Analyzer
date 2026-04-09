@@ -5,9 +5,15 @@
 from typing import Dict, List, Tuple
 
 PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
-    ("<program>", ["<top_decls_opt>", "love", "(", ")", "{", "<body_func>", "}"]),
+    (
+        "<program>",
+        ["<top_decls_opt>", "love", "(", ")", "{", "<body_func>", "}", "<optional_top_func_semi>"],
+    ),
     ("<top_decls_opt>", ["<top_decl>", "<top_decls_opt>"]),
     ("<top_decls_opt>", ["λ"]),
+    # Optional `;` after top-level `love()` / `avoidant` / typed function bodies (C++-style `};`).
+    ("<optional_top_func_semi>", [";"]),
+    ("<optional_top_func_semi>", ["λ"]),
     # Block bodies: declarations and statements may be interleaved (C++-like order).
     ("<body_func>", ["<body_items>"]),
     ("<typed_func_body>", ["<body_items>"]),
@@ -33,7 +39,10 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<top_decl>", ["boundaries", "id", "{", "<boundaries_decls_opt>", "}"]),
     ("<boundaries_decls_opt>", ["<top_decl>", "<boundaries_decls_opt>"]),
     ("<boundaries_decls_opt>", ["λ"]),
-    ("<top_decl>", ["avoidant", "id", "(", "<parameter>", ")", "{", "<body_func>", "}"]),
+    (
+        "<top_decl>",
+        ["avoidant", "id", "(", "<parameter>", ")", "{", "<body_func>", "}", "<optional_top_func_semi>"],
+    ),
     ("<top_decl>", ["const", "<const_decl>"]),
 
     ("<local_decl>", ["dear", "id", "<dear_tail>"]),
@@ -43,7 +52,10 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<local_decl>", ["struct", "id", "id", ";"]),
     ("<status_local_decl>", ["id", "<status_tail>"]),
 
-    ("<dear_after_id>", ["(", "<parameter>", ")", "{", "<typed_func_body>", "}"]),
+    (
+        "<dear_after_id>",
+        ["(", "<parameter>", ")", "{", "<typed_func_body>", "}", "<optional_top_func_semi>"],
+    ),
     ("<dear_after_id>", ["<dear_tail>"]),
     ("<dear_tail>", ["=", "<dear_expr>", "<dear_multi>", ";"]),
     ("<dear_tail>", ["<dear_multi>", ";"]),
@@ -91,7 +103,10 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<dear_factor_not_id>", ["++", "id"]),
     ("<dear_factor_not_id>", ["--", "id"]),
 
-    ("<dearest_after_id>", ["(", "<parameter>", ")", "{", "<typed_func_body>", "}"]),
+    (
+        "<dearest_after_id>",
+        ["(", "<parameter>", ")", "{", "<typed_func_body>", "}", "<optional_top_func_semi>"],
+    ),
     ("<dearest_after_id>", ["<dearest_tail>"]),
     ("<dearest_tail>", ["=", "<dearest_expr>", "<dearest_multi>", ";"]),
     ("<dearest_tail>", ["<dearest_multi>", ";"]),
@@ -133,7 +148,10 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<dearest_factor_not_id>", ["++", "id"]),
     ("<dearest_factor_not_id>", ["--", "id"]),
 
-    ("<rant_after_id>", ["(", "<parameter>", ")", "{", "<typed_func_body>", "}"]),
+    (
+        "<rant_after_id>",
+        ["(", "<parameter>", ")", "{", "<typed_func_body>", "}", "<optional_top_func_semi>"],
+    ),
     ("<rant_after_id>", ["<rant_tail>"]),
     ("<rant_tail>", ["=", "<rant_expr>", "<rant_multi>", ";"]),
     ("<rant_tail>", ["<rant_multi>", ";"]),
@@ -151,7 +169,10 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<rant_factor>", ["rant_lit"]),
     ("<rant_factor>", ["id", "<factor_tail>"]),
 
-    ("<status_after_id>", ["(", "<parameter>", ")", "{", "<typed_func_body>", "}"]),
+    (
+        "<status_after_id>",
+        ["(", "<parameter>", ")", "{", "<typed_func_body>", "}", "<optional_top_func_semi>"],
+    ),
     ("<status_after_id>", ["<status_tail>"]),
     ("<status_tail>", ["=", "<status_expr>", "<status_multi>", ";"]),
     ("<status_tail>", ["<status_multi>", ";"]),

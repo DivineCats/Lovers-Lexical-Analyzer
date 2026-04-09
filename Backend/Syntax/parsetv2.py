@@ -432,11 +432,12 @@ def parse(token_list=None, build_ast=False):
                     raise ParserError(f"Unexpected Token: {lookahead} (line {line}, col {column})\nExpected Token: <end of input>", line, column)
             
             if lookahead == "$" and top != "$":
-                # End of input reached - user is still typing (incremental parsing).
-                # Instead of treating this as a normal unexpected token, surface it
-                # explicitly as an end-of-input (EOF) situation so the higher-level
-                # error formatter can show "unexpected end of input" rather than
-                # picking an arbitrary first expected token.
+                # Optional suffix NTs may ε-reduce at EOF (e.g. `<optional_top_func_semi>`).
+                if top in _parsing_table:
+                    rule_eof = _parsing_table[top].get("$")
+                    if rule_eof == _EPSILON_RULE or rule_eof == ["λ"]:
+                        log_messages.append(f"Skipping {top} (Epsilon Production at EOF)")
+                        continue
                 expected_set = _get_context_aware_expected_set(top, stack, lookahead, _parsing_table)
                 expected_str = _format_expected_tokens(expected_set)
                 raise ParserError(

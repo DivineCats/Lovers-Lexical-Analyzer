@@ -41,7 +41,7 @@ class StructDefinition(ASTNode):
 class Program(ASTNode):
     """
     Root node for Lovers program:
-      <program> -> <top_decls_opt> love ( ) { <body_func> }
+      <program> -> <top_decls_opt> love ( ) { <body_func> } [ ; ]
 
     - All top-level declarations before `love` (variables, consts, functions, namespaces)
       are represented in the lists below.
@@ -67,7 +67,7 @@ class Namespace(ASTNode):
 
 @dataclass
 class MainFunction(ASTNode):
-    """Main function: love() { body_func }"""
+    """Main function: love() { body_func } [optional `;`]."""
     body: "FunctionBody" = None
 
 
@@ -102,7 +102,7 @@ class MultiDeclaration(ASTNode):
 
 @dataclass
 class Function(ASTNode):
-    """Function: return_type id (parameters) { body_func }"""
+    """Function: return_type id (parameters) { body_func } [optional `;`]."""
     return_type: Optional[str] = None  # None for "avoidant" (void)
     name: str = ""
     parameters: List["Parameter"] = field(default_factory=list)
@@ -454,6 +454,10 @@ class RecursiveDescentAstBuilder:
         self.i += 1
         return t
 
+    def _optional_top_func_semicolon(self) -> None:
+        """Optional `;` after top-level `love()` / function `}` (CFG `<optional_top_func_semi>`)."""
+        self._match(";")
+
     # -------------------------
     # entry
     # -------------------------
@@ -585,6 +589,7 @@ class RecursiveDescentAstBuilder:
         self._expect("(", "Expected `(` after `love`")
         self._expect(")", "Expected `)` after `love(`")
         body = self._parse_block_body()
+        self._optional_top_func_semicolon()
         return MainFunction(line=love_tok.line, column=love_tok.column, body=body)
 
     def _parse_function(self) -> Function:
@@ -602,6 +607,7 @@ class RecursiveDescentAstBuilder:
         params = self._parse_parameters()
         self._expect(")", "Expected `)` after parameters")
         body = self._parse_block_body()
+        self._optional_top_func_semicolon()
         return Function(line=start_line, column=start_col, return_type=return_type, name=name_tok.lexeme, parameters=params, body=body)
 
     def _parse_parameters(self) -> List[Parameter]:

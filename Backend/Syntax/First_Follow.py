@@ -147,7 +147,7 @@ def build_parsing_table() -> ParsingTable:
     Build the LL(1) parsing table M[A, a] from the CFG in PRODUCTION_LIST.
 
     For each production A → α:
-      1. For each terminal a ∈ FIRST(α) \ {ε}, set M[A, a] = α.
+      1. For each terminal a in FIRST(α) except ε, set M[A, a] = α.
       2. If ε ∈ FIRST(α), then for each b ∈ FOLLOW(A), set M[A, b] = ε.
 
     Epsilon productions are encoded as ['null'] to match parsetv2.py's
@@ -177,10 +177,9 @@ def build_parsing_table() -> ParsingTable:
         # 2. If ε ∈ FIRST(α), terminals in FOLLOW(lhs)
         if EPSILON in first_alpha or is_epsilon(rhs):
             for b in follow[lhs]:
-                if b == END_MARKER:
-                    # parsetv2 handles '$' separately as end-of-input
-                    continue
+                # Include `$` so optional suffixes (e.g. `<optional_top_func_semi>`) can
+                # reduce at end-of-input; parsetv2 matches this to lookahead `"$"`.
                 if b not in table[lhs]:  # don't overwrite FIRST-based entry
                     table[lhs][b] = EPSILON_RULE
-    
+
     return table

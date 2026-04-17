@@ -49,8 +49,16 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<local_decl>", ["dearest", "id", "<dearest_tail>"]),
     ("<local_decl>", ["rant", "id", "<rant_tail>"]),
     ("<local_decl>", ["status", "<status_local_decl>"]),
-    ("<local_decl>", ["struct", "id", "id", ";"]),
+    ("<local_decl>", ["struct", "id", "id", "<struct_init_opt>", ";"]),
     ("<status_local_decl>", ["id", "<status_tail>"]),
+    ("<struct_init_opt>", ["=", "{", "<struct_init_values_opt>", "}"]),
+    ("<struct_init_opt>", ["λ"]),
+    ("<struct_init_values_opt>", ["<struct_init_item>", "<struct_init_more>"]),
+    ("<struct_init_values_opt>", ["λ"]),
+    ("<struct_init_more>", [",", "<struct_init_item>", "<struct_init_more>"]),
+    ("<struct_init_more>", ["λ"]),
+    ("<struct_init_item>", ["<expr>"]),
+    ("<struct_init_item>", ["{", "<struct_init_values_opt>", "}"]),
 
     (
         "<dear_after_id>",

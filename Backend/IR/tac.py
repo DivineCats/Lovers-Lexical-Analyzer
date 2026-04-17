@@ -1001,6 +1001,68 @@ class TacEmitter:
             self._emit_array_literal_init(row_sym, dims - 1, ex, lovers_type, ex)
             self.emit("ASET", target_sym, str(i), row_sym)
 
+    def _emit_struct_literal_init(
+        self,
+        target_sym: str,
+        struct_type: str,
+        init: ArrayLiteralExpression,
+        err_node: Any,
+    ) -> None:
+        fields = self.struct_fields.get(struct_type)
+        if fields is None:
+            raise TacGenError(f"unknown struct type `{struct_type}`", err_node)
+
+        ordered_fields = list(fields.items())
+        if len(init.items) != len(ordered_fields):
+            raise TacGenError(
+                f"struct initializer for `{struct_type}` expects {len(ordered_fields)} value(s), got {len(init.items)}",
+                err_node,
+            )
+
+        for (field_name, fdesc), item_expr in zip(ordered_fields, init.items):
+            if fdesc.array_dims > 0:
+                if not isinstance(item_expr, ArrayLiteralExpression):
+                    raise TacGenError(
+                        f"field `{field_name}` requires array literal initializer",
+                        item_expr,
+                    )
+                field_tmp = self.fresh_temp()
+                self.declare(field_tmp, fdesc.type_name)
+                self._emit_array_literal_init(
+                    field_tmp,
+                    fdesc.array_dims,
+                    item_expr,
+                    fdesc.type_name,
+                    item_expr,
+                )
+                self.emit("MEMBER_STORE", target_sym, field_name, field_tmp)
+                continue
+
+            if fdesc.type_name in self.struct_fields:
+                if not isinstance(item_expr, ArrayLiteralExpression):
+                    raise TacGenError(
+                        f"field `{field_name}` requires struct literal initializer",
+                        item_expr,
+                    )
+                field_tmp = self.fresh_temp()
+                self.declare(field_tmp, fdesc.type_name)
+                self.emit("STRUCT_INIT", fdesc.type_name, None, field_tmp)
+                self._emit_struct_literal_init(
+                    field_tmp,
+                    fdesc.type_name,
+                    item_expr,
+                    item_expr,
+                )
+                self.emit("MEMBER_STORE", target_sym, field_name, field_tmp)
+                continue
+
+            if isinstance(item_expr, ArrayLiteralExpression):
+                raise TacGenError(
+                    f"scalar field `{field_name}` cannot use `{{ ... }}` initializer",
+                    item_expr,
+                )
+            self.emit("MEMBER_STORE", target_sym, field_name, self.emit_expr(item_expr))
+
     def emit_declaration(self, decl: Declaration) -> None:
         segs: List[Tuple[str, int, Optional[Expression], Any]] = [
             (decl.identifier, decl.array_dimensions, decl.initial_value, decl),
@@ -1014,9 +1076,11 @@ class TacEmitter:
             if decl.data_type in self.struct_fields:
                 if dims > 0:
                     raise TacGenError("struct arrays are not supported", node)
-                if init is not None:
-                    raise TacGenError("struct initializer is not supported", node)
                 self.emit("STRUCT_INIT", decl.data_type, None, name)
+                if init is not None:
+                    if not isinstance(init, ArrayLiteralExpression):
+                        raise TacGenError("struct initializer must use `{ ... }`", node)
+                    self._emit_struct_literal_init(name, decl.data_type, init, node)
                 continue
             if dims > 0:
                 if isinstance(init, ArrayLiteralExpression):
@@ -1044,9 +1108,11 @@ class TacEmitter:
             if decl.data_type in self.struct_fields:
                 if dims > 0:
                     raise TacGenError("struct arrays are not supported", node)
-                if init is not None:
-                    raise TacGenError("struct initializer is not supported", node)
                 self.emit("STRUCT_INIT", decl.data_type, None, sym)
+                if init is not None:
+                    if not isinstance(init, ArrayLiteralExpression):
+                        raise TacGenError("struct initializer must use `{ ... }`", node)
+                    self._emit_struct_literal_init(sym, decl.data_type, init, node)
                 continue
             if dims > 0:
                 if isinstance(init, ArrayLiteralExpression):

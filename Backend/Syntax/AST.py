@@ -664,10 +664,25 @@ class RecursiveDescentAstBuilder:
         return FunctionBody(line=lbrace.line, column=lbrace.column, local_declarations=[], statements=stmts)
 
     def _parse_struct_local_declaration(self) -> Declaration:
-        """Local struct instance: struct TypeName varName; (not a struct definition)."""
+        """Local struct instance: struct TypeName varName [= { ... }] ;"""
         st_tok = self._expect("struct", "Expected `struct`")
         type_tok = self._expect("id", "Expected struct type name")
         id_tok = self._expect("id", "Expected variable name")
+        init: Optional[Expression] = None
+        if self._match("="):
+            self._expect("{", "Expected `{` after `=` in struct initializer")
+            items: List[Expression] = []
+            if self._kind() != "}":
+                while True:
+                    items.append(self._parse_expression())
+                    if not self._match(","):
+                        break
+            self._expect("}", "Expected `}` to end struct initializer")
+            init = ArrayLiteralExpression(
+                line=id_tok.line,
+                column=id_tok.column,
+                items=items,
+            )
         self._expect(";", "Expected `;` after struct variable declaration")
         return Declaration(
             line=st_tok.line,
@@ -675,7 +690,7 @@ class RecursiveDescentAstBuilder:
             data_type=type_tok.lexeme,
             identifier=id_tok.lexeme,
             array_dimensions=0,
-            initial_value=None,
+            initial_value=init,
             is_const=False,
             multi_declarations=[],
         )

@@ -862,18 +862,29 @@ def _declare_variable_ast(
             continue
 
         if isinstance(init, ArrayLiteralExpression):
-            _check_array_initializer_elements(
-                declared_type=decl.data_type,
-                declared_dims=dims,
-                array_lit=init,
-                decl_name=name,
-                scopes=scopes,
-                struct_types=struct_types,
-                function_table=function_table,
-                errors=errors,
-            )
-            if dims > 0:
-                shape_opt = _infer_rectangular_array_shape(dims, init)
+            if decl.data_type in struct_types and dims == 0:
+                _check_struct_initializer_elements(
+                    struct_type=decl.data_type,
+                    struct_lit=init,
+                    decl_name=name,
+                    scopes=scopes,
+                    struct_types=struct_types,
+                    function_table=function_table,
+                    errors=errors,
+                )
+            else:
+                _check_array_initializer_elements(
+                    declared_type=decl.data_type,
+                    declared_dims=dims,
+                    array_lit=init,
+                    decl_name=name,
+                    scopes=scopes,
+                    struct_types=struct_types,
+                    function_table=function_table,
+                    errors=errors,
+                )
+                if dims > 0:
+                    shape_opt = _infer_rectangular_array_shape(dims, init)
         else:
             value_type = _infer_expression_type_ast(
                 init,
@@ -900,6 +911,116 @@ def _declare_variable_ast(
             array_dimensions=dims,
             array_shape=shape_opt,
         )
+
+
+def _check_struct_initializer_elements(
+    struct_type: str,
+    struct_lit: ArrayLiteralExpression,
+    decl_name: str,
+    scopes: List[Dict[str, SymbolInfo]],
+    struct_types: StructLayout,
+    function_table: Dict[str, List[FunctionInfo]],
+    errors: List[SemanticError],
+) -> None:
+    """
+    Validate aggregate struct initialization:
+      struct Type x = { field1_value, field2_value, ... };
+    """
+    fields = struct_types.get(struct_type)
+    if fields is None:
+        errors.append(SemanticError(
+            message=f"Unknown struct type '{struct_type}' in initializer.",
+            node=struct_lit,
+        ))
+        return
+
+    ordered_fields = list(fields.items())
+    provided = len(struct_lit.items)
+    expected = len(ordered_fields)
+    if provided != expected:
+        errors.append(SemanticError(
+            message=(
+                f"Struct initializer for '{decl_name}' ({struct_type}) expects "
+                f"{expected} value(s), got {provided}."
+            ),
+            node=struct_lit,
+        ))
+
+    for idx, (fname, fdesc) in enumerate(ordered_fields):
+        if idx >= provided:
+            break
+        item_expr = struct_lit.items[idx]
+
+        # Aggregate support for array fields and nested struct fields uses
+        # nested brace literals recursively.
+        if fdesc.array_dims > 0:
+            if not isinstance(item_expr, ArrayLiteralExpression):
+                errors.append(SemanticError(
+                    message=(
+                        f"Field '{fname}' of struct '{struct_type}' is an array "
+                        f"and must be initialized with `{{ ... }}`."
+                    ),
+                    node=item_expr,
+                ))
+                continue
+            _check_array_initializer_elements(
+                declared_type=fdesc.type_name,
+                declared_dims=fdesc.array_dims,
+                array_lit=item_expr,
+                decl_name=f"{decl_name}.{fname}",
+                scopes=scopes,
+                struct_types=struct_types,
+                function_table=function_table,
+                errors=errors,
+            )
+            continue
+
+        if fdesc.type_name in struct_types:
+            if not isinstance(item_expr, ArrayLiteralExpression):
+                errors.append(SemanticError(
+                    message=(
+                        f"Field '{fname}' of struct '{struct_type}' is struct "
+                        f"'{fdesc.type_name}' and must be initialized with `{{ ... }}`."
+                    ),
+                    node=item_expr,
+                ))
+                continue
+            _check_struct_initializer_elements(
+                struct_type=fdesc.type_name,
+                struct_lit=item_expr,
+                decl_name=f"{decl_name}.{fname}",
+                scopes=scopes,
+                struct_types=struct_types,
+                function_table=function_table,
+                errors=errors,
+            )
+            continue
+
+        if isinstance(item_expr, ArrayLiteralExpression):
+            errors.append(SemanticError(
+                message=(
+                    f"Field '{fname}' of struct '{struct_type}' expects scalar "
+                    f"type '{fdesc.type_name}', not `{{ ... }}`."
+                ),
+                node=item_expr,
+            ))
+            continue
+
+        item_type = _infer_expression_type_ast(
+            item_expr,
+            scopes,
+            struct_types,
+            function_table,
+            errors,
+        )
+        if not _is_assignable(fdesc.type_name, item_type):
+            errors.append(SemanticError(
+                message=(
+                    f"Type mismatch in struct initializer '{decl_name}.{fname}': "
+                    f"cannot assign {item_type or 'unknown'} to {fdesc.type_name}."
+                ),
+                node=item_expr,
+            ))
 
 
 def _check_array_initializer_elements(

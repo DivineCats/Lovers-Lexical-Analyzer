@@ -33,6 +33,7 @@ from Backend.Syntax.AST import (
     Namespace,
     OutputStatement,
     ParenthesizedExpression,
+    PostfixUpdateExpression,
     Program,
     ReturnStatement,
     Statement,
@@ -359,6 +360,8 @@ class TacEmitter:
             if expr.operator == "!":
                 return "status"
             return self.expr_type(expr.operand)
+        if isinstance(expr, PostfixUpdateExpression):
+            return self.expr_type(expr.operand)
         if isinstance(expr, BinaryExpression):
             op = expr.operator
             if op in {"&&", "||", "==", "!=", "<", ">", "<=", ">="}:
@@ -447,9 +450,13 @@ class TacEmitter:
             if expr.operator == "+":
                 return inner
             raise TacGenError(f"unsupported unary `{expr.operator}`", expr)
+        if isinstance(expr, PostfixUpdateExpression):
+            return self._emit_postfix_update(expr)
         if isinstance(expr, BinaryExpression):
             op = expr.operator
             lt, rt = self.expr_type(expr.left), self.expr_type(expr.right)
+            if op in {"&&", "||"}:
+                return self._emit_short_circuit_logic(expr, op, lt, rt)
             L = self.emit_expr(expr.left)
             R = self.emit_expr(expr.right)
             if op == "+" and (lt == "rant" or rt == "rant"):
@@ -457,12 +464,6 @@ class TacEmitter:
                     raise TacGenError("rant + requires two strings", expr)
                 tt = self.fresh_temp()
                 self.emit("STRCAT", L, R, tt)
-                return tt
-            if op in {"&&", "||"}:
-                tl = self._emit_truthy_temp(expr.left, L, lt)
-                tr = self._emit_truthy_temp(expr.right, R, rt)
-                tt = self.fresh_temp()
-                self.emit("LAND" if op == "&&" else "LOR", tl, tr, tt)
                 return tt
             tac_op = {
                 "==": "EQ",
@@ -505,6 +506,45 @@ class TacEmitter:
         if isinstance(expr, ArrayLiteralExpression):
             raise TacGenError("array literal not allowed here", expr)
         raise TacGenError(f"unsupported expression `{type(expr).__name__}`", expr)
+
+    def _emit_short_circuit_logic(
+        self,
+        expr: BinaryExpression,
+        op: str,
+        lt: str,
+        rt: str,
+    ) -> str:
+        """
+        Emit `&&` / `||` with short-circuit evaluation: do not evaluate the right
+        operand when the left operand already fixes the result (C/Java style).
+        """
+        tt = self.fresh_temp()
+        L = self.emit_expr(expr.left)
+        tl = self._emit_truthy_temp(expr.left, L, lt)
+        if op == "&&":
+            l_false = self.fresh_label("scAndF")
+            l_end = self.fresh_label("scAndE")
+            self.emit("IF_FALSE", tl, l_false, None)
+            R = self.emit_expr(expr.right)
+            tr = self._emit_truthy_temp(expr.right, R, rt)
+            self.emit("LAND", tl, tr, tt)
+            self.emit("GOTO", l_end, None, None)
+            self.emit("LABEL", None, None, l_false)
+            self.emit("ASSIGN", "0", None, tt)
+            self.emit("LABEL", None, None, l_end)
+            return tt
+        # op == "||"
+        l_left_true = self.fresh_label("scOrT")
+        l_end = self.fresh_label("scOrE")
+        self.emit("IF_TRUE", tl, l_left_true, None)
+        R = self.emit_expr(expr.right)
+        tr = self._emit_truthy_temp(expr.right, R, rt)
+        self.emit("LOR", tl, tr, tt)
+        self.emit("GOTO", l_end, None, None)
+        self.emit("LABEL", None, None, l_left_true)
+        self.emit("ASSIGN", "1", None, tt)
+        self.emit("LABEL", None, None, l_end)
+        return tt
 
     def _emit_truthy_temp(self, expr: Expression, place: str, lovers_t: str) -> str:
         if lovers_t == "status":
@@ -562,6 +602,49 @@ class TacEmitter:
             cur = nt
         last = self.emit_expr(indices[-1])
         return cur, last
+
+    def _emit_postfix_update(self, expr: PostfixUpdateExpression) -> str:
+        """Emit postfix ++/--: evaluate to old value, then update storage."""
+        op = expr.operator
+        one = "1" if op == "++" else "-1"
+        inner: Expression = expr.operand
+        while isinstance(inner, ParenthesizedExpression):
+            inner = inner.expression
+
+        if isinstance(inner, IdentifierExpression):
+            if "::" in inner.name:
+                raise TacGenError("postfix ++/-- on qualified name is not supported", expr)
+            if not inner.array_indices:
+                t_old = self.fresh_temp()
+                self.emit("ASSIGN", inner.name, None, t_old)
+                t_new = self.fresh_temp()
+                self.emit("ADD", inner.name, one, t_new)
+                self.emit("ASSIGN", t_new, None, inner.name)
+                return t_old
+            arr, last_i = self._resolve_lhs_array(inner.name, inner.array_indices)
+            t_old = self.fresh_temp()
+            self.emit("INDEX_LOAD", arr, last_i, t_old)
+            t_new = self.fresh_temp()
+            self.emit("ADD", t_old, one, t_new)
+            self.emit("INDEX_STORE", arr, last_i, t_new)
+            return t_old
+
+        if isinstance(inner, SubscriptExpression):
+            base = inner.base
+            if not isinstance(base, IdentifierExpression) or base.array_indices:
+                raise TacGenError("unsupported postfix target for ++/--", expr)
+            if "::" in base.name:
+                raise TacGenError("postfix ++/-- on qualified name is not supported", expr)
+            base_pl = base.name
+            ix_pl = self.emit_expr(inner.index)
+            t_old = self.fresh_temp()
+            self.emit("INDEX_LOAD", base_pl, ix_pl, t_old)
+            t_new = self.fresh_temp()
+            self.emit("ADD", t_old, one, t_new)
+            self.emit("INDEX_STORE", base_pl, ix_pl, t_new)
+            return t_old
+
+        raise TacGenError(f"unsupported postfix ++/-- operand `{type(inner).__name__}`", expr)
 
     def _emit_read_into(self, lovers_type: str, dest: str, node: Statement) -> None:
         if lovers_type == "dear":

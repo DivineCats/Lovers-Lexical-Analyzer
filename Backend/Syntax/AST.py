@@ -305,6 +305,14 @@ class UnaryExpression(Expression):
 
 
 @dataclass
+class PostfixUpdateExpression(Expression):
+    """Postfix ++/-- on a modifiable lvalue (e.g. i++, arr[i]++, (k)++)."""
+
+    operator: str = ""  # "++" or "--"
+    operand: "Expression" = None
+
+
+@dataclass
 class IdentifierExpression(Expression):
     """Identifier: id [index_array]"""
     name: str = ""
@@ -1031,7 +1039,9 @@ class RecursiveDescentAstBuilder:
             self._expect("(", "Expected `(`")
             expr = self._parse_expression()
             self._expect(")", "Expected `)`")
-            return ParenthesizedExpression(line=line, column=col, expression=expr)
+            return self._parse_postfix_chain(
+                ParenthesizedExpression(line=line, column=col, expression=expr)
+            )
 
         if k == "dear_lit":
             t = self._expect("dear_lit", "Expected int literal")
@@ -1057,7 +1067,15 @@ class RecursiveDescentAstBuilder:
 
             if self._kind() == "(":
                 args = self._parse_call_arguments()
-                return FunctionCallExpression(line=head.line, column=head.column, identifier=qualified, namespace=None, arguments=args)
+                return self._parse_postfix_chain(
+                    FunctionCallExpression(
+                        line=head.line,
+                        column=head.column,
+                        identifier=qualified,
+                        namespace=None,
+                        arguments=args,
+                    )
+                )
 
             expr: Expression = IdentifierExpression(line=head.line, column=head.column, name=qualified)
 
@@ -1089,9 +1107,22 @@ class RecursiveDescentAstBuilder:
                 lb = self._expect("]", "Expected `]` after index")
                 expr = SubscriptExpression(line=lb.line, column=lb.column, base=expr, index=ix)
 
-            return expr
+            return self._parse_postfix_chain(expr)
 
         raise AstBuildError(f"Unexpected token in expression: `{k}`", line, col)
+
+    def _parse_postfix_chain(self, expr: Expression) -> Expression:
+        """Attach postfix ++/-- (C-style) after a primary expression."""
+        while self._kind() in UNARY_OPS:
+            op_tok = self._expect_any(sorted(UNARY_OPS), "Expected `++` or `--`")
+            lex = op_tok.lexeme if op_tok.lexeme in ("++", "--") else op_tok.token
+            expr = PostfixUpdateExpression(
+                line=op_tok.line,
+                column=op_tok.column,
+                operator=lex,
+                operand=expr,
+            )
+        return expr
 
     # -------------------------
     # misc helpers

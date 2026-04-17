@@ -41,6 +41,7 @@ from Backend.Syntax.AST import (
     LiteralExpression,
     ArrayLiteralExpression,
     ParenthesizedExpression,
+    PostfixUpdateExpression,
     ASTNode,
 )
 
@@ -1469,6 +1470,109 @@ def _analyze_statement_ast(
     return
 
 
+def _unwrap_parenthesized_expr(expr: Expression) -> Expression:
+    cur: Expression = expr
+    while isinstance(cur, ParenthesizedExpression):
+        cur = cur.expression
+    return cur
+
+
+def _validate_postfix_update_operand(
+    operand: Expression,
+    postfix_node: PostfixUpdateExpression,
+    scopes: List[Dict[str, SymbolInfo]],
+    struct_types: StructLayout,
+    function_table: Dict[str, List[FunctionInfo]],
+    errors: List[SemanticError],
+) -> None:
+    """Ensure ++/-- in expression position targets a modifiable lvalue."""
+    inner = _unwrap_parenthesized_expr(operand)
+    if isinstance(inner, PostfixUpdateExpression):
+        errors.append(SemanticError(
+            message="Cannot apply `++` / `--` directly to the result of another `++` / `--`.",
+            node=postfix_node,
+        ))
+        return
+
+    if isinstance(inner, IdentifierExpression):
+        sym = _lookup(scopes, inner.name)
+        if sym is None:
+            errors.append(SemanticError(
+                message=f"Undeclared identifier '{inner.name}'.",
+                node=inner,
+            ))
+            return
+        if sym.is_const:
+            errors.append(SemanticError(
+                message=f"Cannot apply `{postfix_node.operator}` to const variable '{inner.name}'.",
+                node=postfix_node,
+            ))
+            return
+        if inner.array_indices:
+            if sym.array_dimensions <= 0:
+                errors.append(SemanticError(
+                    message=f"Cannot subscript non-array variable '{inner.name}' for `{postfix_node.operator}`.",
+                    node=postfix_node,
+                ))
+                return
+            elem_t = _infer_expression_type_ast(
+                inner, scopes, struct_types, function_table, errors,
+            )
+            if elem_t is not None and elem_t not in _INCREMENTABLE_TYPES:
+                errors.append(SemanticError(
+                    message=(
+                        f"`{postfix_node.operator}` is not defined for type '{elem_t}' "
+                        f"(array element of '{inner.name}')."
+                    ),
+                    node=postfix_node,
+                ))
+            return
+        _validate_incdec_symbol(sym, inner.name, postfix_node, errors)
+        return
+
+    if isinstance(inner, SubscriptExpression):
+        base = inner.base
+        if not isinstance(base, IdentifierExpression) or base.array_indices:
+            errors.append(SemanticError(
+                message=(
+                    "`++` / `--` here only supports a simple variable or indexed array "
+                    "(e.g. `i++` or `arr[i]++`)."
+                ),
+                node=postfix_node,
+            ))
+            return
+        sym = _lookup(scopes, base.name)
+        if sym is None:
+            errors.append(SemanticError(
+                message=f"Undeclared identifier '{base.name}'.",
+                node=base,
+            ))
+            return
+        if sym.is_const:
+            errors.append(SemanticError(
+                message=f"Cannot apply `{postfix_node.operator}` to const variable '{base.name}'.",
+                node=postfix_node,
+            ))
+            return
+        elem_t = _infer_expression_type_ast(
+            inner, scopes, struct_types, function_table, errors,
+        )
+        if elem_t is not None and elem_t not in _INCREMENTABLE_TYPES:
+            errors.append(SemanticError(
+                message=(
+                    f"`{postfix_node.operator}` is not defined for type '{elem_t}' "
+                    f"(indexed value)."
+                ),
+                node=postfix_node,
+            ))
+        return
+
+    errors.append(SemanticError(
+        message="Operand of `++` / `--` must be a variable or array element.",
+        node=postfix_node,
+    ))
+
+
 def _infer_expression_type_ast(
     expr: Expression,
     scopes: List[Dict[str, SymbolInfo]],
@@ -1731,6 +1835,20 @@ def _infer_expression_type_ast(
         ]
         _unify_array_literal_element_types(item_types, expr, errors)
         return ARRAY_LITERAL_EXPR_TYPE
+
+    if isinstance(expr, PostfixUpdateExpression):
+        _validate_postfix_update_operand(
+            expr.operand,
+            expr,
+            scopes,
+            struct_types,
+            function_table,
+            errors,
+        )
+        inner_e = _unwrap_parenthesized_expr(expr.operand)
+        return _infer_expression_type_ast(
+            inner_e, scopes, struct_types, function_table, errors,
+        )
 
     return None
 

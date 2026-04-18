@@ -639,8 +639,12 @@ class RecursiveDescentAstBuilder:
         stmts: List[Statement] = []
 
         while self._kind() != "}" and not self._at_end():
-            if self._kind() == "struct" and self._kind(2) != "{":
-                decl = self._parse_struct_local_declaration()
+            if (
+                self._kind() == "id"
+                and self._kind(1) == "id"
+                and self._kind(2) in ("=", ";")
+            ):
+                decl = self._parse_struct_instance_declaration()
                 stmts.append(
                     DeclarationStatement(
                         line=decl.line,
@@ -663,9 +667,8 @@ class RecursiveDescentAstBuilder:
         self._expect("}", "Expected `}` to end block")
         return FunctionBody(line=lbrace.line, column=lbrace.column, local_declarations=[], statements=stmts)
 
-    def _parse_struct_local_declaration(self) -> Declaration:
-        """Local struct instance: struct TypeName varName [= { ... }] ;"""
-        st_tok = self._expect("struct", "Expected `struct`")
+    def _parse_struct_instance_declaration(self) -> Declaration:
+        """Local struct instance: TypeName varName [= { ... }] ;"""
         type_tok = self._expect("id", "Expected struct type name")
         id_tok = self._expect("id", "Expected variable name")
         init: Optional[Expression] = None
@@ -685,8 +688,8 @@ class RecursiveDescentAstBuilder:
             )
         self._expect(";", "Expected `;` after struct variable declaration")
         return Declaration(
-            line=st_tok.line,
-            column=st_tok.column,
+            line=type_tok.line,
+            column=type_tok.column,
             data_type=type_tok.lexeme,
             identifier=id_tok.lexeme,
             array_dimensions=0,
@@ -994,8 +997,12 @@ class RecursiveDescentAstBuilder:
         stmts: List[Statement] = []
 
         while not (self._kind() == "breakup" or self._at_end()):
-            if self._kind() == "struct" and self._kind(2) != "{":
-                decl = self._parse_struct_local_declaration()
+            if (
+                self._kind() == "id"
+                and self._kind(1) == "id"
+                and self._kind(2) in ("=", ";")
+            ):
+                decl = self._parse_struct_instance_declaration()
                 stmts.append(
                     DeclarationStatement(
                         line=decl.line,

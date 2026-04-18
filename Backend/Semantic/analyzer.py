@@ -924,7 +924,7 @@ def _check_struct_initializer_elements(
 ) -> None:
     """
     Validate aggregate struct initialization:
-      struct Type x = { field1_value, field2_value, ... };
+      TypeName x = { field1_value, field2_value, ... };
     """
     fields = struct_types.get(struct_type)
     if fields is None:

@@ -140,6 +140,8 @@ class Quad:
             return f"{self.res} = {self.arg1} {o} {self.arg2}"
         if o in {"NEG", "NOT", "LNOT"}:
             return f"{self.res} = {o} {self.arg1}"
+        if o == "TRUNC":
+            return f"{self.res} = trunc({self.arg1})"
         if o == "ASET":
             return f"{self.arg1}[{self.arg2}] = {self.res}"
         if o == "ARR_INIT":
@@ -272,6 +274,8 @@ def format_tac_human_line(q: Quad, label_aliases: Optional[Dict[str, str]] = Non
         return f"{r} = !{a1}"
     if o == "NOT":
         return f"{r} = ~{a1}"
+    if o == "TRUNC":
+        return f"{r} = trunc({a1})"
     if o == "ASET":
         return f"{a1}[{a2}] = {r}"
     if o == "ARR_INIT":
@@ -564,6 +568,56 @@ class TacEmitter:
         self.emit("NE", place, "0", out)
         return out
 
+    def _coerce_value_for_target_type(
+        self,
+        target_type: Optional[str],
+        value_place: str,
+        source_type: Optional[str],
+    ) -> str:
+        """Emit coercion for typed storage targets (currently status canonicalization)."""
+        if target_type != "status":
+            if target_type != "dear":
+                return value_place
+            src = source_type or "dear"
+            if src == "dearest":
+                out = self.fresh_temp()
+                self.emit("TRUNC", value_place, None, out)
+                return out
+            return value_place
+        src = source_type or "dear"
+        if src == "status":
+            return value_place
+        out = self.fresh_temp()
+        if src == "dearest":
+            z = self.fresh_temp()
+            self.emit("ASSIGN", "0.0", None, z)
+            self.emit("NE", value_place, z, out)
+            return out
+        if src == "rant":
+            self.emit("NE", value_place, '""', out)
+            return out
+        self.emit("NE", value_place, "0", out)
+        return out
+
+    def _resolve_member_field_desc(
+        self,
+        base_sym: str,
+        path: List[str],
+    ) -> Optional[StructFieldDesc]:
+        cur_type = self.lookup_type(base_sym)
+        field_desc: Optional[StructFieldDesc] = None
+        for field in path:
+            if cur_type is None:
+                return None
+            fields = self.struct_fields.get(cur_type)
+            if not fields:
+                return None
+            field_desc = fields.get(field)
+            if field_desc is None:
+                return None
+            cur_type = field_desc.type_name
+        return field_desc
+
     def _emit_call(
         self,
         name: str,
@@ -693,6 +747,7 @@ class TacEmitter:
         path: List[str],
         post_member_indices: List[Expression],
         rhs: str,
+        rhs_type: Optional[str],
         assign_op: str,
         node: Any,
     ) -> None:
@@ -704,8 +759,14 @@ class TacEmitter:
             self.emit("MEMBER_LOAD", cur, f, nt)
             cur = nt
         last_field = path[-1]
+        field_desc = self._resolve_member_field_desc(base_sym, path)
         if not post_member_indices:
             if assign_op == "=":
+                rhs = self._coerce_value_for_target_type(
+                    field_desc.type_name if field_desc else None,
+                    rhs,
+                    rhs_type,
+                )
                 self.emit("MEMBER_STORE", cur, last_field, rhs)
                 return
             tmp = self.fresh_temp()
@@ -715,15 +776,26 @@ class TacEmitter:
                 raise TacGenError(f"bad compound `{assign_op}`", node)
             comb = self.fresh_temp()
             self.emit(tac_op, tmp, rhs, comb)
+            comb = self._coerce_value_for_target_type(
+                field_desc.type_name if field_desc else None,
+                comb,
+                field_desc.type_name if field_desc else None,
+            )
             self.emit("MEMBER_STORE", cur, last_field, comb)
             return
         arr = self.fresh_temp()
         self.emit("MEMBER_LOAD", cur, last_field, arr)
+        rhs = self._coerce_value_for_target_type(
+            field_desc.type_name if field_desc else None,
+            rhs,
+            rhs_type,
+        )
         self._emit_index_chain_store(arr, post_member_indices, rhs, assign_op, node)
 
     def emit_stmt(self, stmt: Statement) -> None:
         if isinstance(stmt, AssignmentStatement):
             rhs = self.emit_expr(stmt.value)
+            rhs_type = self.expr_type(stmt.value)
             op = stmt.operator
             if stmt.member_path:
                 if stmt.array_indices:
@@ -733,12 +805,14 @@ class TacEmitter:
                     stmt.member_path,
                     stmt.post_member_indices,
                     rhs,
+                    rhs_type,
                     op,
                     stmt,
                 )
                 return
             if stmt.array_indices:
                 arr, last_i = self._resolve_lhs_array(stmt.identifier, stmt.array_indices)
+                target_elem_type = self.lookup_type(stmt.identifier)
                 if op != "=":
                     tmp = self.fresh_temp()
                     self.emit("INDEX_LOAD", arr, last_i, tmp)
@@ -748,9 +822,12 @@ class TacEmitter:
                     comb = self.fresh_temp()
                     self.emit(tac_op, tmp, rhs, comb)
                     rhs = comb
+                rhs = self._coerce_value_for_target_type(target_elem_type, rhs, rhs_type)
                 self.emit("INDEX_STORE", arr, last_i, rhs)
                 return
+            target_type = self.lookup_type(stmt.identifier)
             if op == "=":
+                rhs = self._coerce_value_for_target_type(target_type, rhs, rhs_type)
                 self.emit("ASSIGN", rhs, None, stmt.identifier)
             else:
                 tac_op = {"+=": "ADD", "-=": "SUB", "*=": "MUL", "/=": "DIV", "%=": "MOD"}.get(op)
@@ -758,6 +835,7 @@ class TacEmitter:
                     raise TacGenError(f"bad op `{op}`", stmt)
                 tmp = self.fresh_temp()
                 self.emit(tac_op, stmt.identifier, rhs, tmp)
+                tmp = self._coerce_value_for_target_type(target_type, tmp, target_type)
                 self.emit("ASSIGN", tmp, None, stmt.identifier)
             return
         if isinstance(stmt, FunctionCallStatement):
@@ -865,9 +943,20 @@ class TacEmitter:
                 if fi.data_type is not None:
                     v = self.emit_expr(fi.value)
                     self.declare(fi.identifier, fi.data_type)
+                    v = self._coerce_value_for_target_type(
+                        fi.data_type,
+                        v,
+                        self.expr_type(fi.value),
+                    )
                     self.emit("ASSIGN", v, None, fi.identifier)
                 else:
-                    self.emit("ASSIGN", self.emit_expr(fi.value), None, fi.identifier)
+                    v = self.emit_expr(fi.value)
+                    v = self._coerce_value_for_target_type(
+                        self.lookup_type(fi.identifier),
+                        v,
+                        self.expr_type(fi.value),
+                    )
+                    self.emit("ASSIGN", v, None, fi.identifier)
             self.emit("LABEL", None, None, lstart)
             if stmt.condition is not None:
                 tc = self._emit_truthy_temp(
@@ -945,8 +1034,11 @@ class TacEmitter:
             self.emit("ASSIGN", tmp, None, u.identifier)
             return
         rhs = self.emit_expr(u.value) if u.value else "0"
+        rhs_type = self.expr_type(u.value) if u.value else "dear"
+        target_type = self.lookup_type(u.identifier)
         op = u.operator
         if op == "=":
+            rhs = self._coerce_value_for_target_type(target_type, rhs, rhs_type)
             self.emit("ASSIGN", rhs, None, u.identifier)
             return
         tac_op = {"+=": "ADD", "-=": "SUB", "*=": "MUL", "/=": "DIV", "%=": "MOD"}.get(op)
@@ -954,6 +1046,7 @@ class TacEmitter:
             raise TacGenError(f"bad for-update `{u.operator}`")
         tmp = self.fresh_temp()
         self.emit(tac_op, u.identifier, rhs, tmp)
+        tmp = self._coerce_value_for_target_type(target_type, tmp, target_type)
         self.emit("ASSIGN", tmp, None, u.identifier)
 
     def emit_block(self, body: Optional[FunctionBody]) -> None:
@@ -988,7 +1081,13 @@ class TacEmitter:
             for i, ex in enumerate(lit.items):
                 if isinstance(ex, ArrayLiteralExpression):
                     raise TacGenError("array literal not allowed here", ex)
-                self.emit("ASET", target_sym, str(i), self.emit_expr(ex))
+                ex_place = self.emit_expr(ex)
+                ex_place = self._coerce_value_for_target_type(
+                    lovers_type,
+                    ex_place,
+                    self.expr_type(ex),
+                )
+                self.emit("ASET", target_sym, str(i), ex_place)
             return
         for i, ex in enumerate(lit.items):
             if not isinstance(ex, ArrayLiteralExpression):
@@ -1061,7 +1160,13 @@ class TacEmitter:
                     f"scalar field `{field_name}` cannot use `{{ ... }}` initializer",
                     item_expr,
                 )
-            self.emit("MEMBER_STORE", target_sym, field_name, self.emit_expr(item_expr))
+            item_place = self.emit_expr(item_expr)
+            item_place = self._coerce_value_for_target_type(
+                fdesc.type_name,
+                item_place,
+                self.expr_type(item_expr),
+            )
+            self.emit("MEMBER_STORE", target_sym, field_name, item_place)
 
     def emit_declaration(self, decl: Declaration) -> None:
         segs: List[Tuple[str, int, Optional[Expression], Any]] = [
@@ -1090,7 +1195,13 @@ class TacEmitter:
                 else:
                     self.emit("ARR_INIT", None, None, name)
             elif init is not None:
-                self.emit("ASSIGN", self.emit_expr(init), None, name)
+                init_place = self.emit_expr(init)
+                init_place = self._coerce_value_for_target_type(
+                    decl.data_type,
+                    init_place,
+                    self.expr_type(init),
+                )
+                self.emit("ASSIGN", init_place, None, name)
             else:
                 self.emit("ASSIGN", self._default_scalar_literal(decl.data_type), None, name)
 
@@ -1122,7 +1233,13 @@ class TacEmitter:
                 else:
                     self.emit("ARR_INIT", None, None, sym)
             elif init is not None:
-                self.emit("ASSIGN", self.emit_expr(init), None, sym)
+                init_place = self.emit_expr(init)
+                init_place = self._coerce_value_for_target_type(
+                    decl.data_type,
+                    init_place,
+                    self.expr_type(init),
+                )
+                self.emit("ASSIGN", init_place, None, sym)
             else:
                 self.emit("ASSIGN", self._default_scalar_literal(decl.data_type), None, sym)
 

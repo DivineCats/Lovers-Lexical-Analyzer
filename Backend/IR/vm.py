@@ -242,6 +242,11 @@ class TacVM:
                     self._set(q.res, 0 if self._truthy(v) else 1)
                 self.ip += 1
                 continue
+            if op == "TRUNC":
+                v = self._load(q.arg1)
+                self._set(q.res, int(float(v)))
+                self.ip += 1
+                continue
             if op == "NOT":
                 self._set(q.res, 0 if self._load(q.arg1) else 1)
                 self.ip += 1

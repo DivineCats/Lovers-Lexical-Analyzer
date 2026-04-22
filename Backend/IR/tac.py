@@ -591,12 +591,12 @@ class TacEmitter:
         if src == "dearest":
             z = self.fresh_temp()
             self.emit("ASSIGN", "0.0", None, z)
-            self.emit("NE", value_place, z, out)
+            self.emit("GT", value_place, z, out)
             return out
         if src == "rant":
             self.emit("NE", value_place, '""', out)
             return out
-        self.emit("NE", value_place, "0", out)
+        self.emit("GT", value_place, "0", out)
         return out
 
     def _resolve_member_field_desc(

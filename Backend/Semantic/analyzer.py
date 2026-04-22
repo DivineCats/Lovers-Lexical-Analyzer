@@ -850,6 +850,11 @@ def _declare_variable_ast(
         shape_opt: Optional[Tuple[int, ...]] = None
 
         if init is None:
+            if decl.is_const:
+                errors.append(SemanticError(
+                    message=f"Const variable '{name}' must be initialized.",
+                    node=node,
+                ))
             current_scope[name] = SymbolInfo(
                 name=name,
                 type_name=decl.data_type,

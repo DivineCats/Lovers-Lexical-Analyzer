@@ -710,6 +710,13 @@ class RecursiveDescentAstBuilder:
                 init = self._parse_array_literal()
             else:
                 init = self._parse_expression()
+        elif is_const:
+            line, col = self._pos()
+            raise AstBuildError(
+                "Const declarations must be initialized with `=`",
+                line,
+                col,
+            )
 
         multi: List[MultiDeclaration] = []
         while self._match(","):
@@ -721,6 +728,13 @@ class RecursiveDescentAstBuilder:
                     minit = self._parse_array_literal()
                 else:
                     minit = self._parse_expression()
+            elif is_const:
+                line, col = self._pos()
+                raise AstBuildError(
+                    "Each const declarator must be initialized with `=`",
+                    line,
+                    col,
+                )
             multi.append(MultiDeclaration(line=mid.line, column=mid.column, identifier=mid.lexeme, array_dimensions=mdims, initial_value=minit))
 
         if require_semicolon:

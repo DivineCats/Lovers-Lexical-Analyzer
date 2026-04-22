@@ -463,8 +463,8 @@ class RecursiveDescentAstBuilder:
         return t
 
     def _optional_top_func_semicolon(self) -> None:
-        """Optional `;` after top-level `love()` / function `}` (CFG `<optional_top_func_semi>`)."""
-        self._match(";")
+        """Mandatory `;` after top-level `love()` / function `}`."""
+        self._expect(";", "Expected `;` after top-level function block")
 
     # -------------------------
     # entry
@@ -590,6 +590,7 @@ class RecursiveDescentAstBuilder:
             raise AstBuildError(f"Unexpected token in namespace: `{self._kind()}`", l, c)
 
         self._expect("}", "Expected `}` to end namespace")
+        self._expect(";", "Expected `;` after namespace block")
         return Namespace(line=kw.line, column=kw.column, name=name_tok.lexeme, global_declarations=decls, sub_functions=funcs)
 
     def _parse_main(self) -> MainFunction:
@@ -597,7 +598,6 @@ class RecursiveDescentAstBuilder:
         self._expect("(", "Expected `(` after `love`")
         self._expect(")", "Expected `)` after `love(`")
         body = self._parse_block_body()
-        self._optional_top_func_semicolon()
         return MainFunction(line=love_tok.line, column=love_tok.column, body=body)
 
     def _parse_function(self) -> Function:

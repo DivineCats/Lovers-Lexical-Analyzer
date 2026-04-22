@@ -7,13 +7,12 @@ from typing import Dict, List, Tuple
 PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     (
         "<program>",
-        ["<top_decls_opt>", "love", "(", ")", "{", "<body_func>", "}", "<optional_top_func_semi>"],
+        ["<top_decls_opt>", "love", "(", ")", "{", "<body_func>", "}"],
     ),
     ("<top_decls_opt>", ["<top_decl>", "<top_decls_opt>"]),
     ("<top_decls_opt>", ["λ"]),
-    # Optional `;` after top-level `love()` / `avoidant` / typed function bodies (C++-style `};`).
+    # Mandatory `;` after top-level typed / avoidant function bodies (C++-style `};`).
     ("<optional_top_func_semi>", [";"]),
-    ("<optional_top_func_semi>", ["λ"]),
     # Block bodies: declarations and statements may be interleaved (C++-like order).
     ("<body_func>", ["<body_items>"]),
     ("<typed_func_body>", ["<body_items>"]),
@@ -36,7 +35,7 @@ PRODUCTION_LIST: List[Tuple[str, List[str]]] = [
     ("<top_decl>", ["status", "<status_top_decl>"]),
     ("<top_decl>", ["struct", "id", "{", "<struct_body_opt>", "}", ";"]),
     ("<status_top_decl>", ["id", "<status_after_id>"]),
-    ("<top_decl>", ["boundaries", "id", "{", "<boundaries_decls_opt>", "}"]),
+    ("<top_decl>", ["boundaries", "id", "{", "<boundaries_decls_opt>", "}", ";"]),
     ("<boundaries_decls_opt>", ["<top_decl>", "<boundaries_decls_opt>"]),
     ("<boundaries_decls_opt>", ["λ"]),
     (

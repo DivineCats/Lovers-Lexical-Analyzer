@@ -167,6 +167,10 @@ class TacVM:
         """Scalars use normal text; nested lists flatten to space-separated values (no list-style brackets)."""
         if isinstance(v, list):
             return " ".join(TacVM._format_value_for_print(x) for x in v)
+        if isinstance(v, float):
+            # Clamp binary float noise to language float precision, then trim.
+            s = f"{v:.6f}".rstrip("0").rstrip(".")
+            return s if s and s != "-0" else "0"
         return str(v)
 
     def _run_loop(self, *, pause_on_input: bool) -> Dict[str, Any]:

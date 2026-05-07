@@ -1560,6 +1560,10 @@ def _analyze_statement_ast(
             function_table,
             errors,
         )
+        
+        # Track case values for duplicate detection
+        seen_cases: Dict[Union[int, float, str], CaseClause] = {}
+        
         if disc_t is not None:
             for case in stmt.cases:
                 lit_t = _case_literal_type(case.value)
@@ -1571,6 +1575,18 @@ def _analyze_statement_ast(
                         ),
                         node=case,
                     ))
+                
+                # Check for duplicate case values
+                if case.value in seen_cases:
+                    errors.append(SemanticError(
+                        message=(
+                            f"Duplicate phase case value: {case.value}. "
+                            f"Previously defined at line {seen_cases[case.value].line}."
+                        ),
+                        node=case,
+                    ))
+                else:
+                    seen_cases[case.value] = case
         for case in stmt.cases:
             _analyze_body_ast(case.body, scopes, struct_types, function_table, errors, switch_ctx)
         if stmt.default_case is not None:
@@ -1811,10 +1827,27 @@ def _infer_expression_type_ast(
                 ))
             return "status"
 
-        # Comparison operators
+        # Comparison operators - strict type checking (C++-style)
         if op in {"==", "!=", "<", ">", "<=", ">="}:
-            # Optional: add stricter compatibility rules later.
-            return "status"
+            # Numeric types: dear, dearest, status (can be mixed)
+            numeric_types = {"dear", "dearest", "status"}
+            
+            # Both operands must be comparable: either same type or both numeric
+            if left_type in numeric_types and right_type in numeric_types:
+                return "status"
+            elif left_type == right_type and left_type == "rant":
+                # String-to-string comparison is allowed
+                return "status"
+            else:
+                # Type mismatch: report error
+                errors.append(SemanticError(
+                    message=(
+                        f"Comparison operator '{op}' requires compatible types; "
+                        f"got {left_type or 'unknown'} and {right_type or 'unknown'}."
+                    ),
+                    node=expr,
+                ))
+                return "status"  # Still return status for downstream analysis
 
         # Arithmetic operators
         if op in {"+", "-", "*", "/", "%"}:
